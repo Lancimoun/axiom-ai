@@ -345,25 +345,32 @@ def _ask_claude(messages: list, model_id: str, system: str) -> tuple[str, int]:
 def _ask_openai(messages: list, model_id: str, system: str) -> tuple[str, int]:
     if openai_client is None:
         raise HTTPException(status_code=503, detail="OpenAI not configured. Add OPENAI_API_KEY to environment.")
-    try:
-        full = [{"role": "system", "content": system}] + messages
+    full = [{"role": "system", "content": system}] + messages
+
+    def _create():
         # GPT-5-series models require max_completion_tokens; older models use max_tokens.
         try:
-            r = openai_client.chat.completions.create(model=model_id, max_completion_tokens=800, messages=full)
+            return openai_client.chat.completions.create(model=model_id, max_completion_tokens=800, messages=full)
         except openai.BadRequestError as e:
             if "max_tokens" in str(e) or "max_completion_tokens" in str(e):
-                r = openai_client.chat.completions.create(model=model_id, max_tokens=800, messages=full)
-            else:
-                raise
-        return (r.choices[0].message.content or "").strip(), r.usage.prompt_tokens + r.usage.completion_tokens
-    except openai.AuthenticationError:
-        raise HTTPException(status_code=502, detail="OpenAI API key is invalid or missing.")
-    except openai.RateLimitError:
-        raise HTTPException(status_code=429, detail="OpenAI rate limit reached. Try again shortly.")
-    except openai.APIStatusError as e:
-        raise HTTPException(status_code=502, detail=f"OpenAI API error: {e.message}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error calling OpenAI: {str(e)}")
+                return openai_client.chat.completions.create(model=model_id, max_tokens=800, messages=full)
+            raise
+
+    for attempt in range(3):
+        try:
+            r = _create()
+            return (r.choices[0].message.content or "").strip(), r.usage.prompt_tokens + r.usage.completion_tokens
+        except openai.RateLimitError:
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))   # 2s, then 4s — rides out bursty/new-key 429s
+                continue
+            raise HTTPException(status_code=429, detail="OpenAI rate limit/quota hit after retries — check billing/credits or try later.")
+        except openai.AuthenticationError:
+            raise HTTPException(status_code=502, detail="OpenAI API key is invalid or missing.")
+        except openai.APIStatusError as e:
+            raise HTTPException(status_code=502, detail=f"OpenAI API error: {e.message}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Unexpected error calling OpenAI: {str(e)}")
 
 
 def _ask_gemini(messages: list, model_id: str, system: str) -> tuple[str, int]:
