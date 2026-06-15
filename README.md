@@ -37,6 +37,8 @@ Built with production concerns from day one: API key auth, per-IP rate limiting,
 | `POST` | `/ask` | ✓ | Single-turn Q&A |
 | `POST` | `/chat` | ✓ | Multi-turn conversation with session memory |
 | `POST` | `/stream` | ✓ | Real-time streaming via Server-Sent Events |
+| `GET` | `/benchmark/probes` | — | Reliability probe suite |
+| `POST` | `/benchmark/reliability` | ✓ | Run the same reliability probes across providers |
 | `GET` | `/session/{id}` | ✓ | View conversation history |
 | `DELETE` | `/session/{id}` | ✓ | Clear a conversation |
 | `GET` | `/docs` | — | Interactive API reference |
@@ -63,6 +65,12 @@ curl -N -X POST https://axiom-ai-production-aaec.up.railway.app/stream \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_KEY" \
   -d '{"question": "Explain transformers", "provider": "claude"}'
+
+# Reliability leaderboard run — Claude vs GPT vs Gemini vs Groq vs Maxima
+curl -X POST https://axiom-ai-production-aaec.up.railway.app/benchmark/reliability \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_KEY" \
+  -d '{"providers": ["claude", "openai", "gemini", "groq", "maxima"], "include_responses": false}'
 ```
 
 ---
@@ -92,6 +100,34 @@ curl -N -X POST https://axiom-ai-production-aaec.up.railway.app/stream \
 - **Custom system prompts** — override persona per request
 - **Usage analytics** — total requests, tokens, breakdown by provider and endpoint
 - **Auth + rate limiting** — production-safe out of the box
+- **Reliability benchmark** — run the same Arena probe suite across providers for leaderboard-ready reports
+
+---
+
+## Reliability Benchmark
+
+Axiom can now generate an Arena-compatible provider comparison:
+
+```bash
+curl -X POST https://axiom-ai-production-aaec.up.railway.app/benchmark/reliability \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_KEY" \
+  -d '{
+    "providers": ["claude", "openai", "gemini", "groq", "maxima"],
+    "max_probes": 5,
+    "include_responses": true
+  }'
+```
+
+The endpoint returns:
+
+- provider scores
+- per-probe checks
+- latency and token totals
+- a sorted leaderboard
+- honest `skipped` rows for providers that are not configured
+
+Maxima is optional and never faked. Set `MAXIMA_BENCHMARK_URL` to a callable Maxima endpoint before expecting a Maxima score.
 
 ---
 
@@ -103,6 +139,8 @@ OPENAI_API_KEY=your_openai_key
 GEMINI_API_KEY=your_gemini_key     # optional — enables Google Gemini
 GROQ_API_KEY=your_groq_key        # optional — enables Groq LPU inference
 SERVICE_API_KEY=your_service_key   # leave empty for open dev access
+MAXIMA_BENCHMARK_URL=https://your-maxima-endpoint.example/ask  # optional — enables Maxima benchmark row
+MAXIMA_API_KEY=your_maxima_key      # optional — sent as X-API-Key to Maxima benchmark URL
 ```
 
 ---

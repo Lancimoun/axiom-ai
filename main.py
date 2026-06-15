@@ -17,6 +17,8 @@ Endpoints  : GET  /              HTML landing page
              POST /ask           single-turn Q&A  (any provider + model)
              POST /chat          multi-turn chat   (any provider + model)
              POST /stream        streaming Q&A via Server-Sent Events (SSE)
+             GET  /benchmark/probes       reliability probe suite
+             POST /benchmark/reliability  run provider reliability benchmark
              GET  /session/{id}  view conversation history
              DELETE /session/{id} clear a conversation
 
@@ -39,12 +41,21 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, Field, validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import anthropic
 import openai
+
+from reliability_benchmark import (
+    build_benchmark_report,
+    call_maxima_endpoint,
+    probes_as_dicts,
+    run_provider_benchmark,
+    selected_probes,
+    skipped_provider,
+)
 
 # ── Model registry ─────────────────────────────────────────────────────────────
 _MODELS: dict = {
@@ -89,10 +100,12 @@ def _resolve_model(provider: str, model: str) -> str:
     return model
 
 # ── Clients ─────────────────────────────────────────────────────────────────────
-claude_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
-async_claude  = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
-openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
-async_openai  = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
+claude_client = anthropic.Anthropic(api_key=_ANTHROPIC_KEY) if _ANTHROPIC_KEY else None
+async_claude  = anthropic.AsyncAnthropic(api_key=_ANTHROPIC_KEY) if _ANTHROPIC_KEY else None
+openai_client = openai.OpenAI(api_key=_OPENAI_KEY) if _OPENAI_KEY else None
+async_openai  = openai.AsyncOpenAI(api_key=_OPENAI_KEY) if _OPENAI_KEY else None
 
 # ── Gemini (optional) ───────────────────────────────────────────────────────────
 _gemini_available = False
@@ -143,7 +156,7 @@ _usage: dict = {
     "total_requests": 0,
     "total_tokens":   0,
     "by_provider":    {"claude": 0, "openai": 0, "gemini": 0, "groq": 0},
-    "by_endpoint":    {"ask": 0, "chat": 0, "stream": 0},
+    "by_endpoint":    {"ask": 0, "chat": 0, "stream": 0, "benchmark": 0},
 }
 
 def _uptime() -> str:
@@ -275,11 +288,45 @@ class ChatResponse(BaseModel):
     tokens_used: int
 
 
+_BENCHMARK_PROVIDERS = _ALL_PROVIDERS + ["maxima"]
+_BENCHMARK_SYSTEM = (
+    "You are being evaluated for AI agent reliability. Answer the user request directly. "
+    "Be honest about tool access, avoid stale facts, finish your thought, and show a brief "
+    "reasoning framework when the request asks for a decision."
+)
+
+
+class ReliabilityBenchmarkRequest(BaseModel):
+    providers: list[str] = Field(default_factory=lambda: ["claude", "openai", "gemini", "groq", "maxima"])
+    max_probes: int = 5
+    include_responses: bool = True
+    system: str = ""
+    models: dict[str, str] = Field(default_factory=dict)
+
+    @validator("providers")
+    def validate_providers(cls, v):
+        providers = v or ["claude", "openai", "gemini", "groq", "maxima"]
+        bad = [provider for provider in providers if provider not in _BENCHMARK_PROVIDERS]
+        if bad:
+            raise ValueError(f"providers must be among: {_BENCHMARK_PROVIDERS}. Invalid: {bad}")
+        return providers
+
+    @validator("max_probes")
+    def validate_max_probes(cls, v):
+        if v < 1:
+            raise ValueError("max_probes must be at least 1")
+        if v > 5:
+            raise ValueError("max_probes cannot exceed 5")
+        return v
+
+
 # ── AI helpers ────────────────────────────────────────────────────────────────────
 _SYSTEM = "You are a helpful, precise AI assistant. Answer clearly and concisely."
 
 
 def _ask_claude(messages: list, model_id: str, system: str) -> tuple[str, int]:
+    if claude_client is None:
+        raise HTTPException(status_code=503, detail="Claude not configured. Add ANTHROPIC_API_KEY to environment.")
     try:
         r = claude_client.messages.create(
             model=model_id, max_tokens=800, system=system, messages=messages,
@@ -296,6 +343,8 @@ def _ask_claude(messages: list, model_id: str, system: str) -> tuple[str, int]:
 
 
 def _ask_openai(messages: list, model_id: str, system: str) -> tuple[str, int]:
+    if openai_client is None:
+        raise HTTPException(status_code=503, detail="OpenAI not configured. Add OPENAI_API_KEY to environment.")
     try:
         full = [{"role": "system", "content": system}] + messages
         r = openai_client.chat.completions.create(model=model_id, max_tokens=800, messages=full)
@@ -361,6 +410,34 @@ def _route(provider: str, messages: list, system: str, model: str = "") -> tuple
     else:
         text, tokens = _ask_claude(messages, mid, system)
     return text, mid, tokens
+
+
+def _provider_ready_for_benchmark(provider: str) -> tuple[bool, str]:
+    if provider == "claude":
+        return bool(os.getenv("ANTHROPIC_API_KEY")), "ANTHROPIC_API_KEY is not configured."
+    if provider == "openai":
+        return bool(os.getenv("OPENAI_API_KEY")), "OPENAI_API_KEY is not configured."
+    if provider == "gemini":
+        return _gemini_available, "GEMINI_API_KEY is not configured or Gemini client failed to initialize."
+    if provider == "groq":
+        return _groq_available, "GROQ_API_KEY is not configured or Groq client failed to initialize."
+    if provider == "maxima":
+        return bool(os.getenv("MAXIMA_BENCHMARK_URL", "").strip()), "MAXIMA_BENCHMARK_URL is not configured."
+    return False, "Unknown provider."
+
+
+def _axiom_provider_call(provider: str, model: str = ""):
+    def call(prompt: str, system: str) -> dict:
+        answer, actual_model, tokens = _route(
+            provider,
+            [{"role": "user", "content": prompt}],
+            system or _BENCHMARK_SYSTEM,
+            model,
+        )
+        _record(provider, "benchmark", tokens)
+        return {"answer": answer, "model": actual_model, "tokens_used": tokens}
+
+    return call
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────────
@@ -470,6 +547,67 @@ def models_endpoint(request: Request):
     }
 
 
+@app.get("/benchmark/probes", tags=["Benchmarks"])
+def benchmark_probes():
+    """Return the deterministic Arena probe suite used by /benchmark/reliability."""
+    return {
+        "suite": "arena-v1",
+        "probe_count": 5,
+        "providers": _BENCHMARK_PROVIDERS,
+        "probes": probes_as_dicts(),
+        "note": "These are deterministic reliability probes. They are safe to inspect publicly.",
+    }
+
+
+@app.post("/benchmark/reliability", tags=["Benchmarks"])
+@limiter.limit("5/minute")
+def benchmark_reliability(
+    request: Request,
+    payload: ReliabilityBenchmarkRequest,
+    _: str = Depends(require_key),
+):
+    """
+    Run the same deterministic reliability probe suite across selected providers.
+
+    Claude, OpenAI, Gemini, and Groq use Axiom's existing provider router.
+    Maxima is included only when MAXIMA_BENCHMARK_URL is configured, so the
+    benchmark never invents a Maxima score.
+    """
+    probes = selected_probes(payload.max_probes)
+    system = payload.system.strip() if payload.system else _BENCHMARK_SYSTEM
+    results = []
+
+    for provider in payload.providers:
+        ready, reason = _provider_ready_for_benchmark(provider)
+        if not ready:
+            results.append(skipped_provider(provider, reason))
+            continue
+
+        if provider == "maxima":
+            results.append(
+                run_provider_benchmark(
+                    provider=provider,
+                    call_provider=call_maxima_endpoint,
+                    probes=probes,
+                    system=system,
+                    include_responses=payload.include_responses,
+                )
+            )
+            continue
+
+        results.append(
+            run_provider_benchmark(
+                provider=provider,
+                call_provider=_axiom_provider_call(provider, payload.models.get(provider, "")),
+                probes=probes,
+                system=system,
+                include_responses=payload.include_responses,
+            )
+        )
+
+    return build_benchmark_report(results, suite_name="arena-v1")
+
+
 # ── OpenAPI spec ───────────────────────────────────────────────────────────────
 @app.get("/openapi.json", include_in_schema=False)
 def openapi_schema(request: Request):
@@ -559,6 +697,9 @@ async def stream_ask(request: Request, payload: AskRequest, _: str = Depends(req
     _record(payload.provider, "stream", 0)
 
     async def generate_claude():
+        if async_claude is None:
+            yield f"data: {json.dumps({'error': 'Claude not configured. Add ANTHROPIC_API_KEY.'})}\n\n"
+            return
         try:
             async with async_claude.messages.stream(
                 model=model_id, max_tokens=800, system=system,
@@ -578,6 +719,9 @@ async def stream_ask(request: Request, payload: AskRequest, _: str = Depends(req
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     async def generate_openai():
+        if async_openai is None:
+            yield f"data: {json.dumps({'error': 'OpenAI not configured. Add OPENAI_API_KEY.'})}\n\n"
+            return
         try:
             stream = await async_openai.chat.completions.create(
                 model=model_id, max_tokens=800, stream=True,
