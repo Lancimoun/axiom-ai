@@ -347,8 +347,15 @@ def _ask_openai(messages: list, model_id: str, system: str) -> tuple[str, int]:
         raise HTTPException(status_code=503, detail="OpenAI not configured. Add OPENAI_API_KEY to environment.")
     try:
         full = [{"role": "system", "content": system}] + messages
-        r = openai_client.chat.completions.create(model=model_id, max_tokens=800, messages=full)
-        return r.choices[0].message.content.strip(), r.usage.prompt_tokens + r.usage.completion_tokens
+        # GPT-5-series models require max_completion_tokens; older models use max_tokens.
+        try:
+            r = openai_client.chat.completions.create(model=model_id, max_completion_tokens=800, messages=full)
+        except openai.BadRequestError as e:
+            if "max_tokens" in str(e) or "max_completion_tokens" in str(e):
+                r = openai_client.chat.completions.create(model=model_id, max_tokens=800, messages=full)
+            else:
+                raise
+        return (r.choices[0].message.content or "").strip(), r.usage.prompt_tokens + r.usage.completion_tokens
     except openai.AuthenticationError:
         raise HTTPException(status_code=502, detail="OpenAI API key is invalid or missing.")
     except openai.RateLimitError:
@@ -367,7 +374,7 @@ def _ask_gemini(messages: list, model_id: str, system: str) -> tuple[str, int]:
         gm = genai.GenerativeModel(
             model_id,
             system_instruction=system,
-            generation_config={"max_output_tokens": 800},
+            generation_config={"max_output_tokens": 1536},
         )
         if len(messages) <= 1:
             response = gm.generate_content(messages[-1]["content"])
@@ -377,7 +384,21 @@ def _ask_gemini(messages: list, model_id: str, system: str) -> tuple[str, int]:
                 for m in messages[:-1]
             ]
             response = gm.start_chat(history=history).send_message(messages[-1]["content"])
-        text = response.text.strip()
+        # response.text raises if a candidate was truncated or safety-blocked — extract defensively
+        text = ""
+        try:
+            text = (response.text or "").strip()
+        except Exception:
+            try:
+                for cand in (response.candidates or []):
+                    for part in (getattr(cand.content, "parts", None) or []):
+                        if getattr(part, "text", ""):
+                            text += part.text
+                text = text.strip()
+            except Exception:
+                text = ""
+        if not text:
+            raise HTTPException(status_code=502, detail="Gemini returned no usable text (response truncated or blocked).")
         try:    tokens = response.usage_metadata.total_token_count
         except Exception: tokens = len(text) // 4
         return text, tokens
