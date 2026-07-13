@@ -1,7 +1,5 @@
 # Axiom AI
 
-[![CI](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml)
-
 **Production-grade AI infrastructure** — Claude, GPT-5.5, Gemini 3.5, and Groq behind one clean REST API. 4 providers. 9 models. One endpoint.
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
