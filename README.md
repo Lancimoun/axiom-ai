@@ -10,7 +10,7 @@
 [![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B_·_Llama_3.1_8B-F55036?style=flat-square)](https://groq.com)
 [![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway)](https://railway.app)
 [![CI](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-10%20passing-brightgreen?style=flat-square)](tests)
+[![Tests](https://img.shields.io/badge/tests-11%20passing-brightgreen?style=flat-square)](tests)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 **Live:** [axiom-ai-production-aaec.up.railway.app](https://axiom-ai-production-aaec.up.railway.app)
@@ -34,7 +34,7 @@ Built with production concerns from day one: API key auth, per-IP rate limiting,
 | `GET` | `/` | — | Landing page |
 | `GET` | `/ping` | — | Ultra-light liveness probe |
 | `GET` | `/health` | — | Status, uptime, usage stats (JSON) |
-| `GET` | `/models` | ✓ | Available providers + model metadata |
+| `GET` | `/models` | — | Public provider + model metadata (never credentials) |
 | `GET` | `/usage` | ✓ | Cumulative token + request analytics |
 | `POST` | `/ask` | ✓ | Single-turn Q&A |
 | `POST` | `/chat` | ✓ | Multi-turn conversation with session memory |

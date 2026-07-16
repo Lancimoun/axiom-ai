@@ -31,6 +31,12 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["location"], "/status")
 
+    def test_model_catalog_is_public_metadata(self):
+        response = self.client.get("/models", headers={"Accept": "application/json"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(set(response.json()), {"claude", "openai", "gemini", "groq"})
+        self.assertNotIn("api_key", response.text.lower())
+
     def test_usage_requires_valid_api_key(self):
         missing = self.client.get("/usage")
         wrong = self.client.get("/usage", headers={"X-API-Key": "wrong"})
