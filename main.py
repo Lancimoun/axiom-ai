@@ -49,6 +49,7 @@ import anthropic
 import openai
 
 from reliability_benchmark import (
+    DEFAULT_PROBES,
     build_benchmark_report,
     call_maxima_endpoint,
     probes_as_dicts,
@@ -322,8 +323,8 @@ class ReliabilityBenchmarkRequest(BaseModel):
     def validate_max_probes(cls, v):
         if v < 1:
             raise ValueError("max_probes must be at least 1")
-        if v > 5:
-            raise ValueError("max_probes cannot exceed 5")
+        if v > len(DEFAULT_PROBES):
+            raise ValueError(f"max_probes cannot exceed {len(DEFAULT_PROBES)}")
         return v
 
 
@@ -627,11 +628,14 @@ def models_endpoint(request: Request):
 def benchmark_probes():
     """Return the deterministic Arena probe suite used by /benchmark/reliability."""
     return {
-        "suite": "arena-v1",
-        "probe_count": 5,
+        "suite": "arena-foundation-15",
+        "probe_count": len(DEFAULT_PROBES),
         "providers": _BENCHMARK_PROVIDERS,
         "probes": probes_as_dicts(),
-        "note": "These are deterministic reliability probes. They are safe to inspect publicly.",
+        "note": (
+            "The 15-probe catalog is provider-free and safe to inspect. "
+            "POST /benchmark/reliability calls only the selected configured providers."
+        ),
     }
 
 
@@ -681,7 +685,11 @@ def benchmark_reliability(
             )
         )
 
-    return build_benchmark_report(results, suite_name="arena-v1")
+    return build_benchmark_report(
+        results,
+        suite_name="arena-foundation-15",
+        probe_count=len(probes),
+    )
 
 
 # ── OpenAPI spec ───────────────────────────────────────────────────────────────

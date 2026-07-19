@@ -10,7 +10,7 @@
 [![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B_·_Llama_3.1_8B-F55036?style=flat-square)](https://groq.com)
 [![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway)](https://railway.app)
 [![CI](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-20%20passing-brightgreen?style=flat-square)](tests)
+[![Tests](https://img.shields.io/badge/tests-26%20passing-brightgreen?style=flat-square)](tests)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 **Live:** [axiom-ai-production-aaec.up.railway.app](https://axiom-ai-production-aaec.up.railway.app)
@@ -103,7 +103,7 @@ curl -X POST https://axiom-ai-production-aaec.up.railway.app/benchmark/reliabili
 - **Custom system prompts** — override persona per request
 - **Usage analytics** — total requests, tokens, breakdown by provider and endpoint
 - **Auth + rate limiting** — production-safe out of the box
-- **Reliability benchmark** — run the same Arena probe suite across providers for leaderboard-ready reports
+- **Reliability benchmark** — inspect 15 provider-free Arena foundation probes, then opt into running 1–15 of them across configured providers for leaderboard-ready reports
 - **Failure-contract lab** — cinematic, provider-free replays of the tested stream, configuration, session, and retry boundaries; reduced-motion aware and explicit that no live provider call is running
 
 ---
@@ -133,7 +133,15 @@ The [live Failure Lab](https://axiom-ai-production-aaec.up.railway.app/#failure-
 
 ## Reliability Benchmark
 
-Axiom can now generate an Arena-compatible provider comparison:
+Axiom carries Arena's **15-case provider-free foundation pack** at `cases/arena_foundation.json`. Inspecting the catalog makes no provider request:
+
+```bash
+curl https://axiom-ai-production-aaec.up.railway.app/benchmark/probes
+```
+
+The catalog covers stale-memory override, decision transparency, tool honesty, complete replies, unknown-memory boundaries, prompt injection, secret handling, citation honesty, uncertainty calibration, action honesty, contradiction resolution, malformed-output handling, idempotent retries, response shape, and evidence-before-completion claims.
+
+The authenticated benchmark endpoint can run any selected prefix from **1 to 15** across configured providers. Its default remains **5** to bound accidental usage; this POST can consume provider credits:
 
 ```bash
 curl -X POST https://axiom-ai-production-aaec.up.railway.app/benchmark/reliability \
@@ -153,6 +161,8 @@ The endpoint returns:
 - latency and token totals
 - a sorted leaderboard
 - honest `skipped` rows for providers that are not configured
+
+Expanding the local catalog from five to fifteen does **not** rewrite the dated provider leaderboard. Those historical scores remain a separate five-prompt × three-run snapshot until Lance explicitly authorizes and runs a new paid comparison.
 
 Maxima is optional and never faked. Set `MAXIMA_BENCHMARK_URL` to a callable Maxima endpoint before expecting a Maxima score.
 

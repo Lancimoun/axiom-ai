@@ -116,6 +116,7 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="failure-lab"', response.text)
         self.assertIn("Contract replay — no provider call", response.text)
+        self.assertIn("26 local tests", response.text)
         self.assertIn("never emits a false terminal", response.text)
         self.assertIn("prefers-reduced-motion", response.text)
         self.assertIn("const reduceMotion", response.text)
@@ -131,6 +132,21 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(set(response.json()), {"claude", "openai", "gemini", "groq"})
         self.assertNotIn("api_key", response.text.lower())
+
+    def test_benchmark_catalog_exposes_fifteen_local_probes(self):
+        response = self.client.get("/benchmark/probes")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["suite"], "arena-foundation-15")
+        self.assertEqual(response.json()["probe_count"], 15)
+        self.assertEqual(len(response.json()["probes"]), 15)
+
+        request = main.ReliabilityBenchmarkRequest(
+            providers=["maxima"], max_probes=15
+        )
+        self.assertEqual(request.max_probes, 15)
+        with self.assertRaises(ValueError):
+            main.ReliabilityBenchmarkRequest(providers=["maxima"], max_probes=16)
 
     def test_usage_requires_valid_api_key(self):
         missing = self.client.get("/usage")
