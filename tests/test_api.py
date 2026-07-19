@@ -110,6 +110,22 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["location"], "/status")
 
+    def test_landing_page_exposes_tested_failure_contracts_safely(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="failure-lab"', response.text)
+        self.assertIn("Contract replay — no provider call", response.text)
+        self.assertIn("never emits a false terminal", response.text)
+        self.assertIn("prefers-reduced-motion", response.text)
+        self.assertIn("const reduceMotion", response.text)
+        self.assertIn("three.module.js", response.text)
+        self.assertNotIn("three.min.js", response.text)
+        self.assertIn("gpt-5.5", response.text.lower())
+        self.assertIn("gemini 3.5 pro", response.text.lower())
+        self.assertNotIn("All Systems Online", response.text)
+        self.assertNotIn("GPT&#8209;4o", response.text)
+
     def test_model_catalog_is_public_metadata(self):
         response = self.client.get("/models", headers={"Accept": "application/json"})
         self.assertEqual(response.status_code, 200)

@@ -19,6 +19,7 @@
       --pl:      #818cf8;
       --cyan:    #06b6d4;
       --green:   #10b981;
+      --danger:  #fb7185;
       --violet:  #8b5cf6;
       --gemini:  #4f9cf9;
       --groq:    #a855f7;
@@ -232,6 +233,95 @@
     .c-i { color: var(--pl); } .c-c { color: var(--cyan); } .c-g { color: var(--green); } .c-v { color: #a78bfa; }
     .stat-lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
 
+    /* ── FAILURE CONTRACT LAB ── */
+    .failure-lab { margin-bottom: 112px; scroll-margin-top: 88px; }
+    .failure-shell {
+      position: relative; overflow: hidden;
+      display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr);
+      gap: 54px; align-items: center; padding: 54px;
+      border: 1px solid rgba(129,140,248,.24); border-radius: 28px;
+      background:
+        linear-gradient(145deg, rgba(9,15,34,.96), rgba(3,7,18,.92)),
+        radial-gradient(circle at 82% 14%, rgba(99,102,241,.2), transparent 42%);
+      box-shadow: 0 42px 110px rgba(0,0,0,.48), inset 0 1px rgba(255,255,255,.05);
+    }
+    .failure-shell::before {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background-image:
+        linear-gradient(rgba(129,140,248,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(129,140,248,.035) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(90deg, transparent, #000 40%);
+    }
+    .failure-copy, .failure-stage { position: relative; z-index: 1; }
+    .evidence-badge {
+      display: inline-flex; align-items: center; gap: 8px; margin-bottom: 20px;
+      padding: 7px 12px; border: 1px solid rgba(16,185,129,.28); border-radius: 999px;
+      background: rgba(16,185,129,.08); color: #6ee7b7;
+      font: 700 10px/1 'SF Mono','Fira Code',monospace; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .evidence-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 15px var(--green); }
+    .failure-copy h2 { max-width: 510px; margin-bottom: 16px; font-size: clamp(30px,4vw,48px); line-height: 1.02; letter-spacing: -.04em; }
+    .failure-lede { max-width: 520px; color: var(--text2); font-size: 15px; line-height: 1.75; }
+    .contract-list { display: grid; gap: 10px; margin: 26px 0 30px; list-style: none; }
+    .contract-list li { display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start; color: #cbd5e1; font-size: 13px; line-height: 1.55; }
+    .contract-list li::before {
+      content: '✓'; display: grid; place-items: center; width: 20px; height: 20px;
+      border-radius: 7px; background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.24); color: var(--green); font-size: 10px; font-weight: 800;
+    }
+    .contract-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+    .contract-actions a {
+      color: var(--text); text-decoration: none; font-size: 12px; font-weight: 700;
+      border: 1px solid var(--border2); border-radius: 9px; padding: 9px 13px; background: var(--surface);
+      transition: transform .18s, border-color .18s, background .18s;
+    }
+    .contract-actions a:hover { transform: translateY(-1px); border-color: rgba(129,140,248,.5); background: rgba(99,102,241,.1); }
+    .failure-tabs { display: grid; grid-template-columns: repeat(4,1fr); gap: 7px; margin-bottom: 12px; }
+    .failure-tab {
+      min-height: 44px; padding: 8px; border: 1px solid var(--border); border-radius: 10px;
+      background: rgba(255,255,255,.025); color: var(--muted); cursor: pointer;
+      font: 700 9px/1.2 'SF Mono','Fira Code',monospace; letter-spacing: .04em;
+      transition: color .18s, border-color .18s, background .18s, transform .18s;
+    }
+    .failure-tab:hover { color: var(--text2); transform: translateY(-1px); }
+    .failure-tab[aria-pressed="true"] { color: #c7d2fe; border-color: rgba(129,140,248,.48); background: rgba(99,102,241,.14); box-shadow: inset 0 0 24px rgba(99,102,241,.08); }
+    .failure-console {
+      position: relative; min-height: 430px; overflow: hidden; border-radius: 20px;
+      border: 1px solid rgba(148,163,184,.18); background: rgba(2,6,23,.92);
+      box-shadow: 0 30px 75px rgba(0,0,0,.52), inset 0 1px rgba(255,255,255,.05);
+      transform: perspective(1100px) rotateY(-2.5deg) rotateX(1deg);
+      transition: transform .45s ease, border-color .45s ease;
+    }
+    .failure-console:hover { transform: perspective(1100px) rotateY(0) rotateX(0) translateY(-3px); border-color: rgba(129,140,248,.38); }
+    .failure-console::after {
+      content: ''; position: absolute; inset: -80% -30%; pointer-events: none;
+      background: linear-gradient(115deg, transparent 45%, rgba(129,140,248,.08) 50%, transparent 55%);
+      animation: consoleSweep 7s ease-in-out infinite;
+    }
+    @keyframes consoleSweep { 0%,55%{transform:translateX(-30%)} 100%{transform:translateX(30%)} }
+    .console-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px 17px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.025); }
+    .console-label { display: flex; align-items: center; gap: 8px; color: var(--text2); font: 700 10px/1 'SF Mono',monospace; letter-spacing: .05em; text-transform: uppercase; }
+    .console-label::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 16px rgba(251,113,133,.8); }
+    .replay-note { color: var(--muted); font: 600 9px/1.2 'SF Mono',monospace; }
+    .event-track { display: grid; grid-template-columns: repeat(3,1fr); position: relative; padding: 30px 28px 24px; }
+    .event-track::before { content: ''; position: absolute; top: 44px; left: 17%; right: 17%; height: 1px; background: linear-gradient(90deg,var(--pl),var(--danger),var(--muted)); opacity: .6; }
+    .event-node { position: relative; z-index: 1; display: grid; justify-items: center; gap: 9px; text-align: center; }
+    .node-dot { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid rgba(129,140,248,.45); border-radius: 10px; color: var(--pl); background: #070d20; font-size: 11px; box-shadow: 0 0 24px rgba(99,102,241,.22); }
+    .event-node.danger .node-dot { border-color: rgba(251,113,133,.55); color: var(--danger); box-shadow: 0 0 28px rgba(251,113,133,.2); }
+    .event-node.blocked .node-dot { border-color: rgba(71,85,105,.5); color: var(--muted); box-shadow: none; }
+    .node-name { color: var(--text2); font: 700 9px/1.2 'SF Mono',monospace; letter-spacing: .04em; }
+    .terminal {
+      margin: 0 20px 18px; min-height: 180px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 13px;
+      background: #030712; color: #94a3b8; font: 12px/1.8 'SF Mono','Fira Code',monospace;
+    }
+    .terminal-line { display: grid; grid-template-columns: 84px 1fr; gap: 10px; }
+    .terminal-key { color: var(--muted); }
+    .terminal-value { color: #cbd5e1; overflow-wrap: anywhere; }
+    .terminal-value.ok { color: #6ee7b7; }
+    .terminal-value.danger { color: #fda4af; }
+    .terminal-value.blocked { color: #64748b; text-decoration: line-through; }
+    .console-result { padding: 0 20px 20px; color: #c7d2fe; font-size: 12px; font-weight: 700; line-height: 1.5; }
+
     /* ── SECTION HEADERS ── */
     .sec-hd { text-align: center; margin-bottom: 60px; }
     .sec-pill {
@@ -391,6 +481,7 @@
     @media(max-width:960px) {
       .hero-grid { grid-template-columns:1fr; }
       .card-wrap { display: none; }
+      .failure-shell { grid-template-columns:1fr; padding:40px; }
       .ep-grid { grid-template-columns:1fr 1fr; }
       .prov-grid { grid-template-columns:1fr; }
       .steps-grid { grid-template-columns:1fr; gap:36px; }
@@ -402,20 +493,32 @@
     }
     @media(max-width:580px) {
       .ep-grid { grid-template-columns:1fr; }
+      .failure-shell { padding:28px 18px; border-radius:20px; }
+      .failure-tabs { grid-template-columns:1fr 1fr; }
+      .failure-console { min-height:0; transform:none; }
+      .event-track { padding-inline:16px; }
+      .terminal { margin-inline:12px; padding:14px; font-size:10px; }
+      .terminal-line { grid-template-columns:66px 1fr; gap:7px; }
       .cta-sec { padding:40px 24px; }
       h1 { font-size:34px; }
+    }
+    @media(prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+      #webgl, .orb { display: none; }
+      .card-3d, .failure-console, .failure-console:hover { transform: none !important; }
     }
   </style>
 </head>
 <body>
 
 <!-- WebGL Canvas -->
-<canvas id="webgl"></canvas>
+<canvas id="webgl" aria-hidden="true"></canvas>
 
 <!-- Orb glows -->
-<div class="orb o1"></div>
-<div class="orb o2"></div>
-<div class="orb o3"></div>
+<div class="orb o1" aria-hidden="true"></div>
+<div class="orb o2" aria-hidden="true"></div>
+<div class="orb o3" aria-hidden="true"></div>
 
 <!-- ── NAV ── -->
 <nav>
@@ -430,13 +533,14 @@
       <span class="logo-tag">AI</span>
     </a>
     <div class="nav-links">
+      <a href="#failure-lab">Failure Lab</a>
       <a href="#endpoints">Endpoints</a>
       <a href="#providers">Providers</a>
       <a href="#code">Quickstart</a>
       <a href="/status">Status</a>
     </div>
     <div class="nav-r">
-      <div class="online-pill"><div class="pulse-d"></div>All Systems Online</div>
+      <div class="online-pill"><div class="pulse-d"></div>Railway API Live</div>
       <a href="/docs" class="btn-cta">Open Docs &#8594;</a>
     </div>
   </div>
@@ -447,14 +551,14 @@
   <div class="container">
     <div class="hero-grid">
       <div class="hero-l">
-        <div class="eyebrow"><div class="eyebrow-dot"></div>Production-Ready &nbsp;&#183;&nbsp; v4.0 &nbsp;&#183;&nbsp; 4 Providers</div>
+        <div class="eyebrow"><div class="eyebrow-dot"></div>Production-Ready &nbsp;&#183;&nbsp; v4.2 &nbsp;&#183;&nbsp; 4 Providers</div>
         <h1>
           <span class="line1">AI Infrastructure</span><br/>
           <span class="line2">for Modern</span><br/>
           <span class="line3 grad-text">Builders.</span>
         </h1>
         <p class="hero-sub">
-          Claude, GPT&#8209;4o, Gemini, and Groq behind one unified API.
+          Claude, GPT&#8209;5.5, Gemini 3.5, and Groq behind one unified API.
           9 models. 4 providers. Real-time streaming. Zero re-implementation.
         </p>
         <div class="hero-btns">
@@ -478,7 +582,7 @@
               <div class="card-url">axiom-ai-production-aaec.up.railway.app</div>
             </div>
             <div class="card-body">
-              <div class="clabel">Request</div>
+              <div class="clabel">Illustrative request</div>
               <div class="req-blk">
 <span class="c-m">POST</span> <span class="c-p">/ask</span>
 <span class="c-d">X-API-Key:</span> <span class="c-s">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span>
@@ -488,10 +592,10 @@
   <span class="c-p">"provider"</span><span class="c-d">:</span> <span class="c-s">"claude"</span>
 <span class="c-d">}</span>
               </div>
-              <div class="clabel">Response</div>
+              <div class="clabel">Illustrative response</div>
               <div class="ok-row">
                 <span class="ok-b">&#10003; 200 OK</span>
-                <span class="ok-ms">318ms</span>
+                <span class="ok-ms">example</span>
               </div>
               <div class="res-blk">
 <span class="c-d">{</span>
@@ -507,7 +611,7 @@
           <!-- Floating badges -->
           <div class="float-b fb1" id="fb1">&#129000; Claude · Sonnet 4.6</div>
           <div class="float-b fb2" id="fb2">&#128142; Gemini 3.5 Flash</div>
-          <div class="float-b fb3" id="fb3">&#10003; 200 OK &middot; 318ms</div>
+          <div class="float-b fb3" id="fb3">&#10003; Unified contract</div>
         </div>
       </div>
     </div>
@@ -536,12 +640,64 @@
   </div>
 </div>
 
+<!-- ── FAILURE CONTRACT LAB ── -->
+<section class="container failure-lab" id="failure-lab" aria-labelledby="failure-title">
+  <div class="failure-shell">
+    <div class="failure-copy">
+      <div class="evidence-badge">20 local tests · provider-free</div>
+      <h2 id="failure-title">When upstream breaks, Axiom tells the truth.</h2>
+      <p class="failure-lede">
+        A cinematic replay of four real contracts enforced in CI. This panel never calls a provider:
+        it makes the tested failure semantics visible without spending inference credits or staging a fake success.
+      </p>
+      <ul class="contract-list">
+        <li><span>After partial output, the stream ends with one named <code>error</code> event and never emits a false terminal <code>done</code>.</span></li>
+        <li><span>Raw provider exception details stay behind the boundary; clients receive stable codes and retry hints.</span></li>
+        <li><span>A failed chat turn leaves the existing session unchanged—no half-written conversation state.</span></li>
+        <li><span>OpenAI rate limits get one Axiom application attempt; retry ownership stays inside the provider SDK.</span></li>
+      </ul>
+      <div class="contract-actions">
+        <a href="https://github.com/Lancimoun/axiom-ai/blob/main/tests/test_api.py">Inspect the contracts &#8599;</a>
+        <a href="/docs">Open API reference &#8594;</a>
+      </div>
+    </div>
+
+    <div class="failure-stage">
+      <div class="failure-tabs" aria-label="Choose a tested failure replay">
+        <button class="failure-tab" type="button" data-failure="stream" aria-pressed="true" aria-controls="failure-console">Broken stream</button>
+        <button class="failure-tab" type="button" data-failure="unavailable" aria-pressed="false" aria-controls="failure-console">Unconfigured</button>
+        <button class="failure-tab" type="button" data-failure="session" aria-pressed="false" aria-controls="failure-console">Failed chat</button>
+        <button class="failure-tab" type="button" data-failure="rate" aria-pressed="false" aria-controls="failure-console">Rate limit</button>
+      </div>
+      <div class="failure-console" id="failure-console" aria-live="polite">
+        <div class="console-head">
+          <div class="console-label" id="failure-label">Partial stream failure</div>
+          <div class="replay-note">Contract replay — no provider call</div>
+        </div>
+        <div class="event-track" aria-hidden="true">
+          <div class="event-node"><span class="node-dot">01</span><span class="node-name" id="node-one">TOKEN</span></div>
+          <div class="event-node danger"><span class="node-dot">02</span><span class="node-name" id="node-two">ERROR</span></div>
+          <div class="event-node blocked"><span class="node-dot">03</span><span class="node-name" id="node-three">DONE</span></div>
+        </div>
+        <div class="terminal" id="failure-terminal">
+          <div class="terminal-line"><span class="terminal-key">message</span><span class="terminal-value ok">token: "partial"</span></div>
+          <div class="terminal-line"><span class="terminal-key">event</span><span class="terminal-value danger">error</span></div>
+          <div class="terminal-line"><span class="terminal-key">code</span><span class="terminal-value">upstream_failure</span></div>
+          <div class="terminal-line"><span class="terminal-key">retryable</span><span class="terminal-value">false</span></div>
+          <div class="terminal-line"><span class="terminal-key">done</span><span class="terminal-value blocked">blocked</span></div>
+        </div>
+        <div class="console-result" id="failure-result">Result: partial content is preserved, the failure is explicit, and success is never fabricated.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ── ENDPOINTS ── -->
 <div class="container" id="endpoints">
   <div class="sec-hd">
     <div class="sec-pill">Endpoints</div>
     <h2>Everything you need to build</h2>
-    <p>Five focused endpoints. No bloat. No setup friction. Swap providers per request.</p>
+    <p>One consistent interface for health, inference, sessions, usage, and reliability benchmarking.</p>
   </div>
   <div class="ep-grid">
 
@@ -612,8 +768,8 @@
 <div class="container steps-sec">
   <div class="sec-hd">
     <div class="sec-pill">How It Works</div>
-    <h2>First response in under 60 seconds</h2>
-    <p>From zero to live AI in the time it takes to brew coffee.</p>
+    <h2>One request shape. Four providers.</h2>
+    <p>Provider switching is one explicit JSON field, while auth and response structure stay consistent.</p>
   </div>
   <div class="steps-grid">
     <div class="step s1">
@@ -639,7 +795,7 @@
   <div class="sec-hd">
     <div class="sec-pill">Providers</div>
     <h2>Four providers. One API.</h2>
-    <p>Switch between Claude, GPT-4.1, Gemini 2.5, and Groq with a single field — no re-implementation, no SDK swaps.</p>
+    <p>Switch between Claude, GPT-5.5, Gemini 3.5, and Groq with a single field — no re-implementation, no SDK swaps.</p>
   </div>
   <div class="prov-grid">
     <div class="prov-card" data-tilt data-tilt-max="8" data-tilt-speed="400" data-tilt-glare data-tilt-max-glare="0.1">
@@ -671,7 +827,7 @@
     <div class="prov-card" data-tilt data-tilt-max="8" data-tilt-speed="400" data-tilt-glare data-tilt-max-glare="0.1">
       <div class="prov-hd">
         <div class="prov-logo pl-g">&#128142;</div>
-        <div><div class="prov-name">Google Gemini</div><div class="prov-model">Gemini 3.5 Flash · 2.5 Pro</div></div>
+        <div><div class="prov-name">Google Gemini</div><div class="prov-model">Gemini 3.5 Flash · Gemini 3.5 Pro</div></div>
       </div>
       <p class="prov-desc">Google's multimodal flagship. Industry-leading 1M token context window — perfect for huge documents, long conversations, and multimodal workloads.</p>
       <div class="prov-tags">
@@ -686,7 +842,7 @@
         <div class="prov-logo pl-q">&#9889;</div>
         <div><div class="prov-name">Groq LPU</div><div class="prov-model">Llama 3.3 70B · Llama 3.1 8B</div></div>
       </div>
-      <p class="prov-desc">Hardware-accelerated inference on Groq's custom LPUs. Open-source models running up to 10× faster than GPU providers. Best-in-class token throughput.</p>
+      <p class="prov-desc">Latency-focused inference on Groq's custom LPUs, exposing the same Axiom request and failure contracts as every other provider adapter.</p>
       <div class="prov-tags">
         <span class="pt pt-q">LPU Accelerated</span>
         <span class="pt pt-q">Open Source</span>
@@ -811,6 +967,7 @@ console.log(data.answer)<span class="cj">;</span>  <span class="cc">// done!</sp
         <a href="/docs">API Reference</a>
         <a href="/status">Status</a>
         <a href="/models">Models</a>
+        <a href="#failure-lab">Failure Lab</a>
         <a href="#endpoints">Endpoints</a>
         <a href="#code">Quick Start</a>
       </div>
@@ -819,14 +976,18 @@ console.log(data.answer)<span class="cj">;</span>  <span class="cc">// done!</sp
 </footer>
 
 <!-- ── SCRIPTS ── -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.4/dist/gsap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.4/dist/ScrollTrigger.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/vanilla-tilt@1.8.1/dist/vanilla-tilt.min.js"></script>
-<script>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
 (function() {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduceMotion) document.documentElement.classList.add('reduced-motion');
+
   /* ── THREE.JS NEURAL NETWORK ── */
-  try {
+  if (!reduceMotion) try {
     const canvas = document.getElementById('webgl');
     const W = window.innerWidth, H = window.innerHeight;
     const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
@@ -902,7 +1063,7 @@ console.log(data.answer)<span class="cj">;</span>  <span class="cc">// done!</sp
   } catch(e) { console.warn('Three.js error:', e); }
 
   /* ── GSAP ANIMATIONS ── */
-  try {
+  if (!reduceMotion) try {
     gsap.registerPlugin(ScrollTrigger);
 
     // Hero stagger
@@ -964,7 +1125,7 @@ console.log(data.answer)<span class="cj">;</span>  <span class="cc">// done!</sp
   const wrap = document.getElementById('cardWrap');
   const card = document.getElementById('card3d');
   const shine = document.getElementById('cardShine');
-  if (wrap && card) {
+  if (!reduceMotion && wrap && card) {
     wrap.addEventListener('mousemove', e => {
       const r = wrap.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width - .5;
@@ -983,6 +1144,10 @@ console.log(data.answer)<span class="cj">;</span>  <span class="cc">// done!</sp
     document.querySelectorAll('[data-count]').forEach(el => {
       const target = parseInt(el.dataset.count);
       const suffix = el.dataset.suffix || '';
+      if (reduceMotion) {
+        el.textContent = target + suffix;
+        return;
+      }
       const dur = 1800, step = 16;
       let t = 0;
       const iv = setInterval(() => {
@@ -994,18 +1159,107 @@ console.log(data.answer)<span class="cj">;</span>  <span class="cc">// done!</sp
       }, step);
     });
   }
-  const ob = new IntersectionObserver(entries => {
-    entries.forEach(e => { if (e.isIntersecting) { runCounters(); ob.disconnect(); }});
-  }, {threshold: .5});
   const sb = document.getElementById('statsBar');
-  if (sb) ob.observe(sb);
+  if (reduceMotion) {
+    runCounters();
+  } else {
+    const ob = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) { runCounters(); ob.disconnect(); }});
+    }, {threshold: .5});
+    if (sb) ob.observe(sb);
+  }
 
   /* ── VANILLA TILT ── */
-  try {
+  if (!reduceMotion) try {
     VanillaTilt.init(document.querySelectorAll('[data-tilt]'), {
       max: 12, speed: 400, glare: true, 'max-glare': .15, scale: 1.02
     });
   } catch(e) {}
+
+  /* ── TESTED FAILURE CONTRACT REPLAYS ── */
+  const failureCases = {
+    stream: {
+      label: 'Partial stream failure',
+      nodes: [['TOKEN',''],['ERROR','danger'],['DONE','blocked']],
+      rows: [
+        ['message','token: "partial"','ok'],
+        ['event','error','danger'],
+        ['code','upstream_failure',''],
+        ['retryable','false',''],
+        ['done','blocked','blocked']
+      ],
+      result: 'Result: partial content is preserved, the failure is explicit, and success is never fabricated.'
+    },
+    unavailable: {
+      label: 'Unconfigured provider preflight',
+      nodes: [['CONFIG',''],['503','danger'],['SSE','blocked']],
+      rows: [
+        ['provider','claude',''],
+        ['configured','false','danger'],
+        ['status','503 before stream',''],
+        ['usage','0 requests','ok'],
+        ['SSE','not started','blocked']
+      ],
+      result: 'Result: configuration fails before text/event-stream begins, so the client receives a normal HTTP 503.'
+    },
+    session: {
+      label: 'Failed chat transaction',
+      nodes: [['STATE',''],['CALL','danger'],['COMMIT','blocked']],
+      rows: [
+        ['history','1 existing turn','ok'],
+        ['provider','503 unavailable','danger'],
+        ['new user turn','not stored','blocked'],
+        ['assistant turn','not stored','blocked'],
+        ['history','unchanged','ok']
+      ],
+      result: 'Result: the provider failure crosses no commit boundary; conversation history remains exactly as it was.'
+    },
+    rate: {
+      label: 'OpenAI rate-limit ownership',
+      nodes: [['REQUEST',''],['429','danger'],['RETRY','blocked']],
+      rows: [
+        ['Axiom calls','1','ok'],
+        ['provider','429 rate_limited','danger'],
+        ['Axiom sleep','never','ok'],
+        ['retry owner','OpenAI SDK',''],
+        ['extra loop','blocked','blocked']
+      ],
+      result: 'Result: Axiom adds no second retry loop, preventing multiplied attempts and surprise latency.'
+    }
+  };
+
+  function renderFailure(key) {
+    const replay = failureCases[key];
+    if (!replay) return;
+    document.getElementById('failure-label').textContent = replay.label;
+    const eventNodes = document.querySelectorAll('.event-node');
+    replay.nodes.forEach(([name, state], index) => {
+      eventNodes[index].className = `event-node ${state}`.trim();
+      eventNodes[index].querySelector('.node-name').textContent = name;
+    });
+    const terminal = document.getElementById('failure-terminal');
+    terminal.replaceChildren(...replay.rows.map(([keyName, value, state]) => {
+      const line = document.createElement('div');
+      line.className = 'terminal-line';
+      const label = document.createElement('span');
+      label.className = 'terminal-key';
+      label.textContent = keyName;
+      const detail = document.createElement('span');
+      detail.className = `terminal-value ${state}`.trim();
+      detail.textContent = value;
+      line.append(label, detail);
+      return line;
+    }));
+    document.getElementById('failure-result').textContent = replay.result;
+  }
+
+  document.querySelectorAll('.failure-tab').forEach(button => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.failure-tab').forEach(candidate => candidate.setAttribute('aria-pressed', 'false'));
+      button.setAttribute('aria-pressed', 'true');
+      renderFailure(button.dataset.failure);
+    });
+  });
 
   /* ── TAB SWITCHING ── */
   window.switchTab = function(id, el) {

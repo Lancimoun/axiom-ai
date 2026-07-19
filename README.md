@@ -10,10 +10,11 @@
 [![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B_·_Llama_3.1_8B-F55036?style=flat-square)](https://groq.com)
 [![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway)](https://railway.app)
 [![CI](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-19%20passing-brightgreen?style=flat-square)](tests)
+[![Tests](https://img.shields.io/badge/tests-20%20passing-brightgreen?style=flat-square)](tests)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 **Live:** [axiom-ai-production-aaec.up.railway.app](https://axiom-ai-production-aaec.up.railway.app)
+**Failure Lab:** [live contract replay](https://axiom-ai-production-aaec.up.railway.app/#failure-lab)
 **Docs:** [axiom-ai-production-aaec.up.railway.app/docs](https://axiom-ai-production-aaec.up.railway.app/docs)
 **Health:** [axiom-ai-production-aaec.up.railway.app/health](https://axiom-ai-production-aaec.up.railway.app/health)
 
@@ -103,6 +104,7 @@ curl -X POST https://axiom-ai-production-aaec.up.railway.app/benchmark/reliabili
 - **Usage analytics** — total requests, tokens, breakdown by provider and endpoint
 - **Auth + rate limiting** — production-safe out of the box
 - **Reliability benchmark** — run the same Arena probe suite across providers for leaderboard-ready reports
+- **Failure-contract lab** — cinematic, provider-free replays of the tested stream, configuration, session, and retry boundaries; reduced-motion aware and explicit that no live provider call is running
 
 ---
 
@@ -124,6 +126,8 @@ data: {"error": "OpenAI stream failed.", "code": "upstream_failure", "retryable"
 ```
 
 All provider, retry, and SSE contracts use local fakes in CI. They do not require API keys or paid inference.
+
+The [live Failure Lab](https://axiom-ai-production-aaec.up.railway.app/#failure-lab) turns those exact contracts into an interactive public narrative. It is a deterministic replay—not a simulated provider benchmark—and its copy is pinned by the landing-page contract test.
 
 ---
 
