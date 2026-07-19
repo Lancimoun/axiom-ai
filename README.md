@@ -10,7 +10,7 @@
 [![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B_·_Llama_3.1_8B-F55036?style=flat-square)](https://groq.com)
 [![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway)](https://railway.app)
 [![CI](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-26%20passing-brightgreen?style=flat-square)](tests)
+[![Tests](https://img.shields.io/badge/tests-30%20passing-brightgreen?style=flat-square)](tests)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 **Live:** [axiom-ai-production-aaec.up.railway.app](https://axiom-ai-production-aaec.up.railway.app)
@@ -84,6 +84,7 @@ curl -X POST https://axiom-ai-production-aaec.up.railway.app/benchmark/reliabili
 |---|---|
 | Framework | FastAPI + Uvicorn |
 | AI Providers | Claude (Anthropic) · GPT-5.5 (OpenAI) · Gemini (Google) · Groq LPU |
+| Gemini SDK | Supported Google GenAI SDK (`google-genai` 2.x) |
 | Models | 9 total across 4 providers |
 | Streaming | Server-Sent Events (SSE) |
 | Auth | API Key (`X-API-Key` header) |
@@ -182,9 +183,9 @@ MAXIMA_API_KEY=your_maxima_key      # optional — sent as X-API-Key to Maxima b
 
 ---
 
-## Known Maintenance Item
+## Gemini SDK Contract
 
-The Gemini adapter still uses Google's legacy `google-generativeai` package. Google ended support for that SDK on November 30, 2025 and recommends `google-genai`. The migration is deliberately separated from this reliability unit so the new provider/SSE contracts can hold behavior constant during the SDK change.
+Axiom uses Google's supported `google-genai` SDK through one injectable client shared by synchronous and streaming paths. Local fakes pin multi-turn role conversion, system instructions, output-token limits, streamed token order, usage accounting, sanitized failures, and the single terminal `done` event. CI never needs a Gemini key or paid inference; `/health` exposes only the non-secret SDK name for live deployment verification.
 
 ---
 

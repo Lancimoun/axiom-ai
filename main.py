@@ -80,6 +80,7 @@ _MODELS: dict = {
     "gemini": {
         "default": "gemini-3.5-flash",
         "provider_name": "Google",
+        "sdk": "google-genai",
         "models": {
             "gemini-3.5-flash": {"name": "Gemini 3.5 Flash", "tier": "fast",    "ctx": 1_000_000},
             "gemini-3.5-pro":   {"name": "Gemini 3.5 Pro",   "tier": "premium", "ctx": 1_000_000},
@@ -117,17 +118,23 @@ async_openai  = openai.AsyncOpenAI(api_key=_OPENAI_KEY) if _OPENAI_KEY else None
 
 # ── Gemini (optional) ───────────────────────────────────────────────────────────
 _gemini_available = False
+_gemini_client = None
+_genai_types = None
 _GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-if _GEMINI_KEY:
+try:
+    from google import genai as _genai
+    from google.genai import types as _genai_types
+except ImportError:
+    _genai = None
+    print("[GEMINI] ⚠️  google-genai not installed")
+
+if _GEMINI_KEY and _genai is not None:
     try:
-        import google.generativeai as _genai
-        _genai.configure(api_key=_GEMINI_KEY)
+        _gemini_client = _genai.Client(api_key=_GEMINI_KEY)
         _gemini_available = True
         print("[GEMINI] ✅ Client ready")
-    except ImportError:
-        print("[GEMINI] ⚠️  google-generativeai not installed")
-    except Exception as _e:
-        print(f"[GEMINI] ❌ Init error: {_e}")
+    except Exception:
+        print("[GEMINI] ❌ Client initialization failed")
 
 # ── Groq (optional) ─────────────────────────────────────────────────────────────
 _groq_available = False
@@ -384,24 +391,36 @@ def _ask_openai(messages: list, model_id: str, system: str) -> tuple[str, int]:
         raise _provider_http_failure("openai")
 
 
+def _gemini_config(system: str, max_output_tokens: int):
+    if _genai_types is None:
+        raise HTTPException(status_code=503, detail="Gemini SDK is not installed.")
+    return _genai_types.GenerateContentConfig(
+        system_instruction=system,
+        max_output_tokens=max_output_tokens,
+    )
+
+
+def _gemini_contents(messages: list):
+    if _genai_types is None:
+        raise HTTPException(status_code=503, detail="Gemini SDK is not installed.")
+    return [
+        _genai_types.Content(
+            role="model" if message["role"] == "assistant" else "user",
+            parts=[_genai_types.Part.from_text(text=message["content"])],
+        )
+        for message in messages
+    ]
+
+
 def _ask_gemini(messages: list, model_id: str, system: str) -> tuple[str, int]:
-    if not _gemini_available:
+    if not _gemini_available or _gemini_client is None:
         raise HTTPException(status_code=503, detail="Gemini not configured. Add GEMINI_API_KEY to environment.")
     try:
-        import google.generativeai as genai  # already configured at startup
-        gm = genai.GenerativeModel(
-            model_id,
-            system_instruction=system,
-            generation_config={"max_output_tokens": 1536},
+        response = _gemini_client.models.generate_content(
+            model=model_id,
+            contents=_gemini_contents(messages),
+            config=_gemini_config(system, 1536),
         )
-        if len(messages) <= 1:
-            response = gm.generate_content(messages[-1]["content"])
-        else:
-            history = [
-                {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
-                for m in messages[:-1]
-            ]
-            response = gm.start_chat(history=history).send_message(messages[-1]["content"])
         # response.text raises if a candidate was truncated or safety-blocked — extract defensively
         text = ""
         try:
@@ -417,8 +436,12 @@ def _ask_gemini(messages: list, model_id: str, system: str) -> tuple[str, int]:
                 text = ""
         if not text:
             raise HTTPException(status_code=502, detail="Gemini returned no usable text (response truncated or blocked).")
-        try:    tokens = response.usage_metadata.total_token_count
-        except Exception: tokens = len(text) // 4
+        try:
+            tokens = response.usage_metadata.total_token_count
+            if not isinstance(tokens, int):
+                raise TypeError
+        except Exception:
+            tokens = len(text) // 4
         return text, tokens
     except HTTPException:
         raise
@@ -482,7 +505,7 @@ def _stream_unavailable_detail(provider: str) -> str:
         return "Claude not configured. Add ANTHROPIC_API_KEY to environment."
     if provider == "openai" and async_openai is None:
         return "OpenAI not configured. Add OPENAI_API_KEY to environment."
-    if provider == "gemini" and not _gemini_available:
+    if provider == "gemini" and (not _gemini_available or _gemini_client is None):
         return "Gemini not configured. Add GEMINI_API_KEY to environment."
     if provider == "groq" and (not _groq_available or _async_groq is None):
         return "Groq not configured. Add GROQ_API_KEY to environment."
@@ -495,7 +518,7 @@ def _provider_ready_for_benchmark(provider: str) -> tuple[bool, str]:
     if provider == "openai":
         return bool(os.getenv("OPENAI_API_KEY")), "OPENAI_API_KEY is not configured."
     if provider == "gemini":
-        return _gemini_available, "GEMINI_API_KEY is not configured or Gemini client failed to initialize."
+        return _gemini_available and _gemini_client is not None, "GEMINI_API_KEY is not configured or Gemini client failed to initialize."
     if provider == "groq":
         return _groq_available, "GROQ_API_KEY is not configured or Groq client failed to initialize."
     if provider == "maxima":
@@ -550,9 +573,10 @@ def health(request: Request):
                 "models":    list(_MODELS["openai"]["models"].keys()),
             },
             "gemini": {
-                "available": _gemini_available,
+                "available": _gemini_available and _gemini_client is not None,
                 "model":     _MODELS["gemini"]["default"],
                 "models":    list(_MODELS["gemini"]["models"].keys()),
+                "sdk":       _MODELS["gemini"]["sdk"],
             },
             "groq": {
                 "available": _groq_available,
@@ -606,10 +630,11 @@ def models_endpoint(request: Request):
             "available": bool(
                 os.getenv("ANTHROPIC_API_KEY") if provider == "claude" else
                 os.getenv("OPENAI_API_KEY")    if provider == "openai" else
-                _gemini_available              if provider == "gemini" else
+                (_gemini_available and _gemini_client is not None) if provider == "gemini" else
                 _groq_available
             ),
             "default": info["default"],
+            **({"sdk": info["sdk"]} if "sdk" in info else {}),
             "models": {
                 mid: {
                     "name":           minfo["name"],
@@ -829,22 +854,28 @@ async def stream_ask(request: Request, payload: AskRequest, _: str = Depends(req
             yield _sse_error("openai", "upstream_failure", retryable=False)
 
     async def generate_gemini():
-        if not _gemini_available:
+        if not _gemini_available or _gemini_client is None:
             yield _sse_error("gemini", "provider_unavailable", retryable=False)
             return
         try:
-            import google.generativeai as genai
-            gm = genai.GenerativeModel(
-                model_id, system_instruction=system,
-                generation_config={"max_output_tokens": 800},
+            response = _gemini_client.aio.models.generate_content_stream(
+                model=model_id,
+                contents=payload.question,
+                config=_gemini_config(system, 800),
             )
-            response = await gm.generate_content_async(payload.question, stream=True)
             tokens = 0
             async for chunk in response:
-                if chunk.text:
-                    yield _sse_event({"token": chunk.text})
-            try:    tokens = response.usage_metadata.total_token_count
-            except Exception: pass
+                text = getattr(chunk, "text", "")
+                if text:
+                    yield _sse_event({"token": text})
+                usage_metadata = getattr(chunk, "usage_metadata", None)
+                chunk_tokens = getattr(usage_metadata, "total_token_count", 0)
+                if isinstance(chunk_tokens, int):
+                    tokens = max(tokens, chunk_tokens)
+            stream_usage = getattr(response, "usage_metadata", None)
+            stream_tokens = getattr(stream_usage, "total_token_count", 0)
+            if isinstance(stream_tokens, int):
+                tokens = max(tokens, stream_tokens)
             _usage["total_tokens"] += tokens
             yield _sse_event({"done": True, "tokens_used": tokens, "model": model_id})
         except Exception:

@@ -1,6 +1,7 @@
 import json
 import os
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -67,6 +68,57 @@ class FakeAsyncOpenAI:
         self.chat = SimpleNamespace(completions=self.completions)
 
 
+class FakeGeminiStream:
+    def __init__(self, chunks, *, tokens=0, final_error=None):
+        self._chunks = iter(chunks)
+        self._final_error = final_error
+        self.usage_metadata = SimpleNamespace(total_token_count=tokens)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            text = next(self._chunks)
+        except StopIteration:
+            if self._final_error is not None:
+                error = self._final_error
+                self._final_error = None
+                raise error
+            raise StopAsyncIteration
+        return SimpleNamespace(text=text)
+
+
+class FakeGeminiModels:
+    def __init__(self, *, response=None, error=None):
+        self.response = response
+        self.error = error
+        self.calls = []
+
+    def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        return self.response
+
+
+class FakeAsyncGeminiModels:
+    def __init__(self, stream):
+        self.stream = stream
+        self.calls = []
+
+    def generate_content_stream(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.stream
+
+
+class FakeGeminiClient:
+    def __init__(self, *, response=None, error=None, stream=None):
+        self.models = FakeGeminiModels(response=response, error=error)
+        self.async_models = FakeAsyncGeminiModels(stream)
+        self.aio = SimpleNamespace(models=self.async_models)
+
+
 class RaisingCreate:
     def __init__(self, error):
         self.error = error
@@ -102,6 +154,16 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(health.status_code, 200)
         self.assertEqual(health.json()["status"], "live")
         self.assertEqual(health.json()["environment"], "production")
+        self.assertEqual(health.json()["providers"]["gemini"]["sdk"], "google-genai")
+
+    def test_gemini_uses_supported_google_genai_dependency_only(self):
+        root = Path(main.__file__).resolve().parent
+        requirements = (root / "requirements.txt").read_text(encoding="utf-8")
+        source = (root / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn("google-genai", requirements)
+        self.assertNotIn("google-generativeai", requirements)
+        self.assertNotIn("google.generativeai", source)
 
     def test_browser_health_redirects_to_status_page(self):
         response = self.client.get(
@@ -116,7 +178,7 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="failure-lab"', response.text)
         self.assertIn("Contract replay — no provider call", response.text)
-        self.assertIn("26 local tests", response.text)
+        self.assertIn("30 local tests", response.text)
         self.assertIn("never emits a false terminal", response.text)
         self.assertIn("prefers-reduced-motion", response.text)
         self.assertIn("const reduceMotion", response.text)
@@ -131,6 +193,7 @@ class ApiSurfaceTests(unittest.TestCase):
         response = self.client.get("/models", headers={"Accept": "application/json"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(set(response.json()), {"claude", "openai", "gemini", "groq"})
+        self.assertEqual(response.json()["gemini"]["sdk"], "google-genai")
         self.assertNotIn("api_key", response.text.lower())
 
     def test_benchmark_catalog_exposes_fifteen_local_probes(self):
@@ -203,12 +266,10 @@ class ApiSurfaceTests(unittest.TestCase):
                 json={"question": "hello", "provider": "openai"},
             )
 
+        gemini_client = FakeGeminiClient(error=RuntimeError(secret))
         with (
             patch.object(main, "_gemini_available", True),
-            patch(
-                "google.generativeai.GenerativeModel",
-                side_effect=RuntimeError(secret),
-            ),
+            patch.object(main, "_gemini_client", gemini_client),
         ):
             gemini = self.client.post(
                 "/ask",
@@ -240,6 +301,43 @@ class ApiSurfaceTests(unittest.TestCase):
                     response.json()["detail"], f"{provider} API request failed."
                 )
                 self.assertNotIn(secret, response.text)
+
+    def test_gemini_sync_preserves_multi_turn_roles_and_usage(self):
+        gemini_client = FakeGeminiClient(
+            response=SimpleNamespace(
+                text="The supported SDK answered.",
+                usage_metadata=SimpleNamespace(total_token_count=37),
+            )
+        )
+        messages = [
+            {"role": "user", "content": "First question"},
+            {"role": "assistant", "content": "First answer"},
+            {"role": "user", "content": "Follow-up"},
+        ]
+
+        with (
+            patch.object(main, "_gemini_available", True),
+            patch.object(main, "_gemini_client", gemini_client),
+        ):
+            answer, tokens = main._ask_gemini(
+                messages, "gemini-3.5-flash", "System contract"
+            )
+
+        self.assertEqual(answer, "The supported SDK answered.")
+        self.assertEqual(tokens, 37)
+        self.assertEqual(len(gemini_client.models.calls), 1)
+        call = gemini_client.models.calls[0]
+        self.assertEqual(call["model"], "gemini-3.5-flash")
+        self.assertEqual(
+            [content.role for content in call["contents"]],
+            ["user", "model", "user"],
+        )
+        self.assertEqual(
+            [content.parts[0].text for content in call["contents"]],
+            ["First question", "First answer", "Follow-up"],
+        )
+        self.assertEqual(call["config"].system_instruction, "System contract")
+        self.assertEqual(call["config"].max_output_tokens, 1536)
 
     def test_openai_rate_limit_has_one_application_attempt(self):
         request = httpx.Request(
@@ -381,6 +479,75 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(len(events), 2)
         self.assertNotIn("done", response.text)
         self.assertNotIn("SECRET-DETAIL", response.text)
+
+    def test_gemini_stream_emits_tokens_usage_and_one_terminal_done_event(self):
+        gemini_client = FakeGeminiClient(
+            stream=FakeGeminiStream(["Gemini", " stream"], tokens=23)
+        )
+        with (
+            patch.object(main, "_gemini_available", True),
+            patch.object(main, "_gemini_client", gemini_client),
+        ):
+            response = self.client.post(
+                "/stream",
+                headers=self.auth,
+                json={"question": "hello", "provider": "gemini"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            parse_sse(response.text),
+            [
+                ("message", {"token": "Gemini"}),
+                ("message", {"token": " stream"}),
+                (
+                    "message",
+                    {
+                        "done": True,
+                        "tokens_used": 23,
+                        "model": "gemini-3.5-flash",
+                    },
+                ),
+            ],
+        )
+        self.assertEqual(len(gemini_client.async_models.calls), 1)
+        call = gemini_client.async_models.calls[0]
+        self.assertEqual(call["contents"], "hello")
+        self.assertEqual(call["config"].max_output_tokens, 800)
+
+    def test_gemini_stream_sanitizes_partial_failure_without_done(self):
+        gemini_client = FakeGeminiClient(
+            stream=FakeGeminiStream(
+                ["partial"],
+                final_error=RuntimeError("SECRET-GEMINI-DETAIL"),
+            )
+        )
+        with (
+            patch.object(main, "_gemini_available", True),
+            patch.object(main, "_gemini_client", gemini_client),
+        ):
+            response = self.client.post(
+                "/stream",
+                headers=self.auth,
+                json={"question": "hello", "provider": "gemini"},
+            )
+
+        events = parse_sse(response.text)
+        self.assertEqual(events[0], ("message", {"token": "partial"}))
+        self.assertEqual(
+            events[1],
+            (
+                "error",
+                {
+                    "error": "Gemini stream failed.",
+                    "code": "upstream_failure",
+                    "retryable": False,
+                },
+            ),
+        )
+        self.assertEqual(len(events), 2)
+        self.assertNotIn("done", response.text)
+        self.assertNotIn("SECRET-GEMINI-DETAIL", response.text)
 
 
 if __name__ == "__main__":
