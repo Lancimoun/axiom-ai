@@ -1,16 +1,95 @@
+import json
 import os
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import httpx
 
 os.environ.setdefault("SERVICE_API_KEY", "test-service-key")
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import main
 
 
+def parse_sse(body: str):
+    events = []
+    for block in body.strip().split("\n\n"):
+        event_type = "message"
+        data_lines = []
+        for line in block.splitlines():
+            if line.startswith("event:"):
+                event_type = line.removeprefix("event:").strip()
+            elif line.startswith("data:"):
+                data_lines.append(line.removeprefix("data:").lstrip())
+        if data_lines:
+            events.append((event_type, json.loads("\n".join(data_lines))))
+    return events
+
+
+class FakeOpenAIStream:
+    def __init__(self, chunks, *, final_error=None):
+        self._chunks = iter(chunks)
+        self._final_error = final_error
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            text = next(self._chunks)
+        except StopIteration:
+            if self._final_error is not None:
+                error = self._final_error
+                self._final_error = None
+                raise error
+            raise StopAsyncIteration
+        return SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=text))]
+        )
+
+
+class FakeOpenAICompletions:
+    def __init__(self, stream):
+        self.stream = stream
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.stream
+
+
+class FakeAsyncOpenAI:
+    def __init__(self, stream):
+        self.completions = FakeOpenAICompletions(stream)
+        self.chat = SimpleNamespace(completions=self.completions)
+
+
+class RaisingCreate:
+    def __init__(self, error):
+        self.error = error
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        raise self.error
+
+
+def fake_chat_client(create):
+    return SimpleNamespace(chat=SimpleNamespace(completions=create))
+
+
 class ApiSurfaceTests(unittest.TestCase):
     def setUp(self):
         main._sessions.clear()
+        main._usage["total_requests"] = 0
+        main._usage["total_tokens"] = 0
+        for provider in main._usage["by_provider"]:
+            main._usage["by_provider"][provider] = 0
+        for endpoint in main._usage["by_endpoint"]:
+            main._usage["by_endpoint"][endpoint] = 0
         self.client = TestClient(main.app)
         self.auth = {"X-API-Key": "test-service-key"}
 
@@ -56,6 +135,127 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("provider", response.text)
 
+    def test_ask_reports_unconfigured_provider_without_recording_usage(self):
+        with patch.object(main, "claude_client", None):
+            response = self.client.post(
+                "/ask",
+                headers=self.auth,
+                json={"question": "hello", "provider": "claude"},
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("not configured", response.json()["detail"].lower())
+        self.assertEqual(main._usage["total_requests"], 0)
+        self.assertEqual(main._usage["total_tokens"], 0)
+
+    def test_sync_provider_failures_are_sanitized_across_all_adapters(self):
+        secret = "SECRET-UPSTREAM-DETAIL"
+
+        claude_create = RaisingCreate(RuntimeError(secret))
+        with patch.object(
+            main,
+            "claude_client",
+            SimpleNamespace(messages=claude_create),
+        ):
+            claude = self.client.post(
+                "/ask",
+                headers=self.auth,
+                json={"question": "hello", "provider": "claude"},
+            )
+
+        openai_create = RaisingCreate(RuntimeError(secret))
+        with patch.object(main, "openai_client", fake_chat_client(openai_create)):
+            openai_response = self.client.post(
+                "/ask",
+                headers=self.auth,
+                json={"question": "hello", "provider": "openai"},
+            )
+
+        with (
+            patch.object(main, "_gemini_available", True),
+            patch(
+                "google.generativeai.GenerativeModel",
+                side_effect=RuntimeError(secret),
+            ),
+        ):
+            gemini = self.client.post(
+                "/ask",
+                headers=self.auth,
+                json={"question": "hello", "provider": "gemini"},
+            )
+
+        groq_create = RaisingCreate(RuntimeError(secret))
+        with (
+            patch.object(main, "_groq_available", True),
+            patch.object(main, "_groq_client", fake_chat_client(groq_create)),
+        ):
+            groq = self.client.post(
+                "/ask",
+                headers=self.auth,
+                json={"question": "hello", "provider": "groq"},
+            )
+
+        responses = {
+            "Claude": claude,
+            "OpenAI": openai_response,
+            "Gemini": gemini,
+            "Groq": groq,
+        }
+        for provider, response in responses.items():
+            with self.subTest(provider=provider):
+                self.assertEqual(response.status_code, 502)
+                self.assertEqual(
+                    response.json()["detail"], f"{provider} API request failed."
+                )
+                self.assertNotIn(secret, response.text)
+
+    def test_openai_rate_limit_has_one_application_attempt(self):
+        request = httpx.Request(
+            "POST", "https://api.openai.com/v1/chat/completions"
+        )
+        upstream_response = httpx.Response(429, request=request)
+        rate_error = main.openai.RateLimitError(
+            "rate limited", response=upstream_response, body=None
+        )
+        create = RaisingCreate(rate_error)
+
+        with (
+            patch.object(main, "openai_client", fake_chat_client(create)),
+            patch.object(main.time, "sleep") as sleep,
+        ):
+            response = self.client.post(
+                "/ask",
+                headers=self.auth,
+                json={"question": "hello", "provider": "openai"},
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(len(create.calls), 1)
+        sleep.assert_not_called()
+
+    def test_chat_provider_failure_does_not_commit_half_turn(self):
+        original = [{"role": "assistant", "content": "ready"}]
+        main._sessions["demo"] = [dict(message) for message in original]
+
+        with patch.object(
+            main,
+            "_route",
+            side_effect=HTTPException(status_code=503, detail="Provider unavailable."),
+        ):
+            response = self.client.post(
+                "/chat",
+                headers=self.auth,
+                json={
+                    "message": "this should not persist",
+                    "session_id": "demo",
+                    "provider": "claude",
+                },
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(main._sessions["demo"], original)
+        self.assertEqual(main._usage["total_requests"], 0)
+
     def test_session_read_delete_lifecycle_and_auth(self):
         main._sessions["demo"] = [{"role": "user", "content": "hello"}]
 
@@ -80,6 +280,75 @@ class ApiSurfaceTests(unittest.TestCase):
 
         self.assertTrue(all(response.status_code == 200 for response in responses[:5]))
         self.assertEqual(responses[5].status_code, 429)
+
+    def test_stream_rejects_known_unconfigured_provider_before_sse_starts(self):
+        with patch.object(main, "async_claude", None):
+            response = self.client.post(
+                "/stream",
+                headers=self.auth,
+                json={"question": "hello", "provider": "claude"},
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json()["detail"],
+            "Claude not configured. Add ANTHROPIC_API_KEY to environment.",
+        )
+        self.assertEqual(main._usage["total_requests"], 0)
+
+    def test_stream_emits_ordered_tokens_and_one_terminal_done_event(self):
+        fake_client = FakeAsyncOpenAI(FakeOpenAIStream(["Hello", " world"]))
+        with patch.object(main, "async_openai", fake_client):
+            response = self.client.post(
+                "/stream",
+                headers=self.auth,
+                json={"question": "hello", "provider": "openai"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.headers["content-type"].startswith("text/event-stream"))
+        self.assertEqual(
+            parse_sse(response.text),
+            [
+                ("message", {"token": "Hello"}),
+                ("message", {"token": " world"}),
+                ("message", {"done": True, "model": "gpt-5.4-mini"}),
+            ],
+        )
+        self.assertEqual(len(fake_client.completions.calls), 1)
+        self.assertTrue(fake_client.completions.calls[0]["stream"])
+
+    def test_stream_sanitizes_partial_provider_failure_and_never_emits_done(self):
+        fake_client = FakeAsyncOpenAI(
+            FakeOpenAIStream(
+                ["partial"],
+                final_error=RuntimeError("provider exploded with SECRET-DETAIL"),
+            )
+        )
+        with patch.object(main, "async_openai", fake_client):
+            response = self.client.post(
+                "/stream",
+                headers=self.auth,
+                json={"question": "hello", "provider": "openai"},
+            )
+
+        events = parse_sse(response.text)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(events[0], ("message", {"token": "partial"}))
+        self.assertEqual(
+            events[1],
+            (
+                "error",
+                {
+                    "error": "OpenAI stream failed.",
+                    "code": "upstream_failure",
+                    "retryable": False,
+                },
+            ),
+        )
+        self.assertEqual(len(events), 2)
+        self.assertNotIn("done", response.text)
+        self.assertNotIn("SECRET-DETAIL", response.text)
 
 
 if __name__ == "__main__":

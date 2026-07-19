@@ -45,6 +45,24 @@ class ReliabilityBenchmarkTests(unittest.TestCase):
         self.assertEqual(result["total_tokens"], 12)
         self.assertEqual(result["model"], "fake-model")
 
+    def test_provider_benchmark_records_fake_provider_failure(self):
+        def failing_provider(prompt: str, system: str):
+            raise RuntimeError("transport unavailable")
+
+        result = run_provider_benchmark(
+            provider="fake",
+            call_provider=failing_provider,
+            probes=DEFAULT_PROBES[:1],
+            include_responses=False,
+        )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["score"], 0)
+        self.assertEqual(result["completed_probes"], 0)
+        self.assertEqual(result["probes"][0]["status"], "fail")
+        self.assertEqual(result["probes"][0]["checks"][0]["name"], "provider_call")
+        self.assertNotIn("response", result["probes"][0])
+
     def test_report_ranks_scored_providers_and_excludes_skips(self):
         report = build_benchmark_report([
             {"provider": "a", "status": "complete", "score": 80},

@@ -94,6 +94,13 @@ _MODELS: dict = {
     },
 }
 
+_PROVIDER_LABELS = {
+    "claude": "Claude",
+    "openai": "OpenAI",
+    "gemini": "Gemini",
+    "groq": "Groq",
+}
+
 def _resolve_model(provider: str, model: str) -> str:
     if not model:
         return _MODELS[provider]["default"]
@@ -324,6 +331,13 @@ class ReliabilityBenchmarkRequest(BaseModel):
 _SYSTEM = "You are a helpful, precise AI assistant. Answer clearly and concisely."
 
 
+def _provider_http_failure(provider: str) -> HTTPException:
+    return HTTPException(
+        status_code=502,
+        detail=f"{_PROVIDER_LABELS[provider]} API request failed.",
+    )
+
+
 def _ask_claude(messages: list, model_id: str, system: str) -> tuple[str, int]:
     if claude_client is None:
         raise HTTPException(status_code=503, detail="Claude not configured. Add ANTHROPIC_API_KEY to environment.")
@@ -336,10 +350,10 @@ def _ask_claude(messages: list, model_id: str, system: str) -> tuple[str, int]:
         raise HTTPException(status_code=502, detail="Claude API key is invalid or missing.")
     except anthropic.RateLimitError:
         raise HTTPException(status_code=429, detail="Claude rate limit reached. Try again shortly.")
-    except anthropic.APIStatusError as e:
-        raise HTTPException(status_code=502, detail=f"Claude API error: {e.message}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error calling Claude: {str(e)}")
+    except anthropic.APIStatusError:
+        raise _provider_http_failure("claude")
+    except Exception:
+        raise _provider_http_failure("claude")
 
 
 def _ask_openai(messages: list, model_id: str, system: str) -> tuple[str, int]:
@@ -356,21 +370,17 @@ def _ask_openai(messages: list, model_id: str, system: str) -> tuple[str, int]:
                 return openai_client.chat.completions.create(model=model_id, max_tokens=800, messages=full)
             raise
 
-    for attempt in range(3):
-        try:
-            r = _create()
-            return (r.choices[0].message.content or "").strip(), r.usage.prompt_tokens + r.usage.completion_tokens
-        except openai.RateLimitError:
-            if attempt < 2:
-                time.sleep(2 * (attempt + 1))   # 2s, then 4s — rides out bursty/new-key 429s
-                continue
-            raise HTTPException(status_code=429, detail="OpenAI rate limit/quota hit after retries — check billing/credits or try later.")
-        except openai.AuthenticationError:
-            raise HTTPException(status_code=502, detail="OpenAI API key is invalid or missing.")
-        except openai.APIStatusError as e:
-            raise HTTPException(status_code=502, detail=f"OpenAI API error: {e.message}")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Unexpected error calling OpenAI: {str(e)}")
+    try:
+        r = _create()
+        return (r.choices[0].message.content or "").strip(), r.usage.prompt_tokens + r.usage.completion_tokens
+    except openai.RateLimitError:
+        raise HTTPException(status_code=429, detail="OpenAI rate limit/quota hit after SDK retries — check billing/credits or try later.")
+    except openai.AuthenticationError:
+        raise HTTPException(status_code=502, detail="OpenAI API key is invalid or missing.")
+    except openai.APIStatusError:
+        raise _provider_http_failure("openai")
+    except Exception:
+        raise _provider_http_failure("openai")
 
 
 def _ask_gemini(messages: list, model_id: str, system: str) -> tuple[str, int]:
@@ -411,8 +421,8 @@ def _ask_gemini(messages: list, model_id: str, system: str) -> tuple[str, int]:
         return text, tokens
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Gemini API error: {str(e)}")
+    except Exception:
+        raise _provider_http_failure("gemini")
 
 
 def _ask_groq(messages: list, model_id: str, system: str) -> tuple[str, int]:
@@ -422,8 +432,8 @@ def _ask_groq(messages: list, model_id: str, system: str) -> tuple[str, int]:
         full = [{"role": "system", "content": system}] + messages
         r = _groq_client.chat.completions.create(model=model_id, max_tokens=800, messages=full)
         return r.choices[0].message.content.strip(), r.usage.prompt_tokens + r.usage.completion_tokens
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Groq API error: {str(e)}")
+    except Exception:
+        raise _provider_http_failure("groq")
 
 
 def _route(provider: str, messages: list, system: str, model: str = "") -> tuple[str, str, int]:
@@ -438,6 +448,44 @@ def _route(provider: str, messages: list, system: str, model: str = "") -> tuple
     else:
         text, tokens = _ask_claude(messages, mid, system)
     return text, mid, tokens
+
+
+def _sse_event(payload: dict, *, event: str = "") -> str:
+    lines = []
+    if event:
+        lines.append(f"event: {event}")
+    lines.append(f"data: {json.dumps(payload)}")
+    return "\n".join(lines) + "\n\n"
+
+
+def _sse_error(provider: str, code: str, *, retryable: bool) -> str:
+    label = _PROVIDER_LABELS[provider]
+    messages = {
+        "provider_unavailable": f"{label} is not configured.",
+        "upstream_auth_failed": f"{label} authentication failed.",
+        "rate_limited": f"{label} rate limit reached.",
+        "upstream_failure": f"{label} stream failed.",
+    }
+    return _sse_event(
+        {
+            "error": messages[code],
+            "code": code,
+            "retryable": retryable,
+        },
+        event="error",
+    )
+
+
+def _stream_unavailable_detail(provider: str) -> str:
+    if provider == "claude" and async_claude is None:
+        return "Claude not configured. Add ANTHROPIC_API_KEY to environment."
+    if provider == "openai" and async_openai is None:
+        return "OpenAI not configured. Add OPENAI_API_KEY to environment."
+    if provider == "gemini" and not _gemini_available:
+        return "Gemini not configured. Add GEMINI_API_KEY to environment."
+    if provider == "groq" and (not _groq_available or _async_groq is None):
+        return "Groq not configured. Add GROQ_API_KEY to environment."
+    return ""
 
 
 def _provider_ready_for_benchmark(provider: str) -> tuple[bool, str]:
@@ -683,7 +731,7 @@ def chat(request: Request, payload: ChatRequest, _: str = Depends(require_key)):
     - Works with all 4 providers. Switch provider mid-conversation freely.
     """
     session_id = payload.session_id or str(uuid.uuid4())
-    history    = _sessions.get(session_id, [])
+    history    = list(_sessions.get(session_id, []))
     history.append({"role": "user", "content": payload.message})
     if len(history) > _MAX_HISTORY:
         history = history[-_MAX_HISTORY:]
@@ -721,12 +769,16 @@ async def stream_ask(request: Request, payload: AskRequest, _: str = Depends(req
     if payload.context:
         system += f"\n\nUse only this context to answer:\n{payload.context}"
 
+    unavailable_detail = _stream_unavailable_detail(payload.provider)
+    if unavailable_detail:
+        raise HTTPException(status_code=503, detail=unavailable_detail)
+
     model_id = _resolve_model(payload.provider, payload.model)
     _record(payload.provider, "stream", 0)
 
     async def generate_claude():
         if async_claude is None:
-            yield f"data: {json.dumps({'error': 'Claude not configured. Add ANTHROPIC_API_KEY.'})}\n\n"
+            yield _sse_error("claude", "provider_unavailable", retryable=False)
             return
         try:
             async with async_claude.messages.stream(
@@ -734,21 +786,21 @@ async def stream_ask(request: Request, payload: AskRequest, _: str = Depends(req
                 messages=[{"role": "user", "content": payload.question}],
             ) as stream:
                 async for text in stream.text_stream:
-                    yield f"data: {json.dumps({'token': text})}\n\n"
+                    yield _sse_event({"token": text})
                 final = await stream.get_final_message()
                 tokens = final.usage.input_tokens + final.usage.output_tokens
                 _usage["total_tokens"] += tokens
-            yield f"data: {json.dumps({'done': True, 'tokens_used': tokens, 'model': model_id})}\n\n"
+            yield _sse_event({"done": True, "tokens_used": tokens, "model": model_id})
         except anthropic.AuthenticationError:
-            yield f"data: {json.dumps({'error': 'Claude API key invalid or missing.'})}\n\n"
+            yield _sse_error("claude", "upstream_auth_failed", retryable=False)
         except anthropic.RateLimitError:
-            yield f"data: {json.dumps({'error': 'Claude rate limit reached.'})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield _sse_error("claude", "rate_limited", retryable=True)
+        except Exception:
+            yield _sse_error("claude", "upstream_failure", retryable=False)
 
     async def generate_openai():
         if async_openai is None:
-            yield f"data: {json.dumps({'error': 'OpenAI not configured. Add OPENAI_API_KEY.'})}\n\n"
+            yield _sse_error("openai", "provider_unavailable", retryable=False)
             return
         try:
             stream = await async_openai.chat.completions.create(
@@ -759,18 +811,18 @@ async def stream_ask(request: Request, payload: AskRequest, _: str = Depends(req
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
-                    yield f"data: {json.dumps({'token': delta})}\n\n"
-            yield f"data: {json.dumps({'done': True, 'model': model_id})}\n\n"
+                    yield _sse_event({"token": delta})
+            yield _sse_event({"done": True, "model": model_id})
         except openai.AuthenticationError:
-            yield f"data: {json.dumps({'error': 'OpenAI API key invalid or missing.'})}\n\n"
+            yield _sse_error("openai", "upstream_auth_failed", retryable=False)
         except openai.RateLimitError:
-            yield f"data: {json.dumps({'error': 'OpenAI rate limit reached.'})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield _sse_error("openai", "rate_limited", retryable=True)
+        except Exception:
+            yield _sse_error("openai", "upstream_failure", retryable=False)
 
     async def generate_gemini():
         if not _gemini_available:
-            yield f"data: {json.dumps({'error': 'Gemini not configured. Add GEMINI_API_KEY.'})}\n\n"
+            yield _sse_error("gemini", "provider_unavailable", retryable=False)
             return
         try:
             import google.generativeai as genai
@@ -782,17 +834,17 @@ async def stream_ask(request: Request, payload: AskRequest, _: str = Depends(req
             tokens = 0
             async for chunk in response:
                 if chunk.text:
-                    yield f"data: {json.dumps({'token': chunk.text})}\n\n"
+                    yield _sse_event({"token": chunk.text})
             try:    tokens = response.usage_metadata.total_token_count
             except Exception: pass
             _usage["total_tokens"] += tokens
-            yield f"data: {json.dumps({'done': True, 'tokens_used': tokens, 'model': model_id})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': f'Gemini error: {str(e)}'})}\n\n"
+            yield _sse_event({"done": True, "tokens_used": tokens, "model": model_id})
+        except Exception:
+            yield _sse_error("gemini", "upstream_failure", retryable=False)
 
     async def generate_groq():
         if not _groq_available or _async_groq is None:
-            yield f"data: {json.dumps({'error': 'Groq not configured. Add GROQ_API_KEY.'})}\n\n"
+            yield _sse_error("groq", "provider_unavailable", retryable=False)
             return
         try:
             stream = await _async_groq.chat.completions.create(
@@ -803,10 +855,10 @@ async def stream_ask(request: Request, payload: AskRequest, _: str = Depends(req
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
-                    yield f"data: {json.dumps({'token': delta})}\n\n"
-            yield f"data: {json.dumps({'done': True, 'model': model_id})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': f'Groq error: {str(e)}'})}\n\n"
+                    yield _sse_event({"token": delta})
+            yield _sse_event({"done": True, "model": model_id})
+        except Exception:
+            yield _sse_error("groq", "upstream_failure", retryable=False)
 
     generators = {
         "claude": generate_claude,

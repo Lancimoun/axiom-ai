@@ -10,7 +10,7 @@
 [![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B_·_Llama_3.1_8B-F55036?style=flat-square)](https://groq.com)
 [![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway)](https://railway.app)
 [![CI](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Lancimoun/axiom-ai/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-11%20passing-brightgreen?style=flat-square)](tests)
+[![Tests](https://img.shields.io/badge/tests-19%20passing-brightgreen?style=flat-square)](tests)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 **Live:** [axiom-ai-production-aaec.up.railway.app](https://axiom-ai-production-aaec.up.railway.app)
@@ -96,13 +96,34 @@ curl -X POST https://axiom-ai-production-aaec.up.railway.app/benchmark/reliabili
 
 - **Quad provider** — Claude, GPT-5.5, Gemini, and Groq behind one API, switchable per request
 - **9 models** — Haiku 4.5 / Sonnet 4.6 / Opus 4.7 · GPT-5.4 Mini / GPT-5.5 · Gemini 3.5 Flash / 3.5 Pro · Llama 3.3 70B / Llama 3.1 8B
-- **Streaming** — real-time token-by-token output via SSE from all 4 providers
-- **Multi-turn chat** — session memory with rolling 20-message window
+- **Streaming** — real-time token-by-token output via SSE from all 4 providers, with one explicit terminal event
+- **Multi-turn chat** — session memory with rolling 20-message window; failed provider calls never commit half a turn
 - **RAG-ready** — pass `context` to any `/ask` call to ground answers in your data
 - **Custom system prompts** — override persona per request
 - **Usage analytics** — total requests, tokens, breakdown by provider and endpoint
 - **Auth + rate limiting** — production-safe out of the box
 - **Reliability benchmark** — run the same Arena probe suite across providers for leaderboard-ready reports
+
+---
+
+## Failure Contract
+
+Axiom's provider boundary is deterministic and credential-free under test:
+
+- a provider known to be unconfigured returns `503` before an SSE stream starts
+- a provider failure after streaming begins emits one named `error` event and never a false `done`
+- stream errors carry stable `code` and `retryable` fields without exposing raw SDK exception text
+- failed chat calls leave the existing session unchanged
+- OpenAI retry ownership stays in the SDK; Axiom does not stack another retry loop around it
+
+Example terminal stream failure:
+
+```text
+event: error
+data: {"error": "OpenAI stream failed.", "code": "upstream_failure", "retryable": false}
+```
+
+All provider, retry, and SSE contracts use local fakes in CI. They do not require API keys or paid inference.
 
 ---
 
@@ -144,6 +165,12 @@ SERVICE_API_KEY=your_service_key   # leave empty for open dev access
 MAXIMA_BENCHMARK_URL=https://your-maxima-endpoint.example/ask  # optional — enables Maxima benchmark row
 MAXIMA_API_KEY=your_maxima_key      # optional — sent as X-API-Key to Maxima benchmark URL
 ```
+
+---
+
+## Known Maintenance Item
+
+The Gemini adapter still uses Google's legacy `google-generativeai` package. Google ended support for that SDK on November 30, 2025 and recommends `google-genai`. The migration is deliberately separated from this reliability unit so the new provider/SSE contracts can hold behavior constant during the SDK change.
 
 ---
 
