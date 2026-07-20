@@ -157,7 +157,15 @@
 <!-- ── SCALAR API REFERENCE ── -->
 <div id="api-ref" role="main"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@latest"></script>
+<!-- Pinned, not @latest. This tag previously read `@latest`, which means the
+     code executing on a live page is chosen by whatever the CDN serves that
+     minute — the browser-side twin of an unbounded requirements range.
+     It was not even self-consistent: when this was pinned, the npm registry
+     resolved `latest` to 1.63.0 while jsdelivr was still serving 1.62.9. So a
+     reader and the page could disagree about what was running.
+     1.62.9 is the version production has actually been serving and working on;
+     upgrading is now a deliberate edit with a diff, not a silent event. -->
+<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.62.9"></script>
 <script>
 Scalar.createApiReference('#api-ref', {
   url: '/openapi.json',
