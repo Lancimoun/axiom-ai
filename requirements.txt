@@ -1,8 +1,22 @@
-fastapi>=0.100.0
-uvicorn>=0.23.0
-anthropic>=0.40.0
-openai>=1.0.0
+# Upper bounds are deliberate, and they matter more here than anywhere else in
+# the fleet: this repo AUTO-DEPLOYS on every push to main, and there is no
+# lockfile — so any commit, including a docs-only one, triggers a rebuild that
+# re-resolves this file against whatever PyPI serves that minute.
+#
+# `google-genai>=2.10.0,<3` was already bounded and is the pattern the rest now
+# follow. Iteration 114 lost an afternoon to this exact class of drift: a
+# Starlette deprecation surfaced through httpx, which is why the dev
+# requirements pin httpx2 and make that warning fatal in CI.
+#
+# Bounds are generous on purpose — they exist to make a major version a decision
+# rather than an accident, not to freeze the stack. Honest limit: `<1` on a 0.x
+# package stops 1.0, not a breaking 0.x minor. A lockfile is the stronger answer;
+# this is the improvement available without one.
+fastapi>=0.100.0,<1
+uvicorn>=0.23.0,<1
+anthropic>=0.40.0,<1
+openai>=1.0.0,<3
 google-genai>=2.10.0,<3
-groq>=0.9.0
-python-dotenv>=1.0.0
-slowapi>=0.1.9
+groq>=0.9.0,<1
+python-dotenv>=1.0.0,<2
+slowapi>=0.1.9,<1
