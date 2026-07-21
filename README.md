@@ -162,7 +162,7 @@ The endpoint returns:
 - a sorted leaderboard
 - honest `skipped` rows for providers that are not configured
 
-Expanding the local catalog from five to fifteen does **not** rewrite the dated provider leaderboard. Those historical scores remain a separate five-prompt × three-run snapshot until Lance explicitly authorizes and runs a new paid comparison.
+Expanding the local catalog from five to fifteen does **not** rewrite the dated provider leaderboard. Those historical scores remain a separate five-prompt × three-run snapshot until a new paid comparison is explicitly authorized and run.
 
 Maxima is optional and never faked. Set `MAXIMA_BENCHMARK_URL` to a callable Maxima endpoint before expecting a Maxima score.
 
