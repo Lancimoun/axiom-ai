@@ -1,6 +1,8 @@
 import json
 import os
+import struct
 import unittest
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -178,7 +180,7 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="failure-lab"', response.text)
         self.assertIn("Contract replay — no provider call", response.text)
-        self.assertIn("30 local tests", response.text)
+        self.assertIn("CI-enforced contracts", response.text)
         self.assertIn("never emits a false terminal", response.text)
         self.assertIn("prefers-reduced-motion", response.text)
         self.assertIn("const reduceMotion", response.text)
@@ -188,6 +190,75 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertIn("gemini 3.5 pro", response.text.lower())
         self.assertNotIn("All Systems Online", response.text)
         self.assertNotIn("GPT&#8209;4o", response.text)
+
+    def test_social_preview_asset_metadata_and_route_are_release_ready(self):
+        root = Path(main.__file__).resolve().parent
+        image_url = (
+            "https://axiom-ai-production-aaec.up.railway.app/"
+            "static/axiom-social-card.png"
+        )
+        alt = (
+            "AXIOM AI Failure Lab social card: “When upstream breaks, Axiom tells "
+            "the truth.” Four provider lanes converge on a contract gate; a fault "
+            "becomes a sanitized error, the completion rail is blocked, and session "
+            "state remains intact."
+        )
+
+        landing = self.client.get("/")
+        self.assertEqual(landing.status_code, 200)
+        self.assertIn(
+            '<link rel="canonical" '
+            'href="https://axiom-ai-production-aaec.up.railway.app/"/>',
+            landing.text,
+        )
+        self.assertIn(f'<meta property="og:image" content="{image_url}"/>', landing.text)
+        self.assertIn('<meta property="og:image:type" content="image/png"/>', landing.text)
+        self.assertIn('<meta property="og:image:width" content="1200"/>', landing.text)
+        self.assertIn('<meta property="og:image:height" content="630"/>', landing.text)
+        self.assertIn(f'<meta property="og:image:alt" content="{alt}"/>', landing.text)
+        self.assertIn(
+            '<meta name="twitter:card" content="summary_large_image"/>',
+            landing.text,
+        )
+        self.assertIn(f'<meta name="twitter:image" content="{image_url}"/>', landing.text)
+        self.assertIn(f'<meta name="twitter:image:alt" content="{alt}"/>', landing.text)
+
+        image = self.client.get("/static/axiom-social-card.png")
+        self.assertEqual(image.status_code, 200)
+        self.assertEqual(image.headers["content-type"], "image/png")
+        self.assertTrue(image.content.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(image.content[12:16], b"IHDR")
+        self.assertEqual(struct.unpack(">II", image.content[16:24]), (1200, 630))
+        self.assertGreater(len(image.content), 100_000)
+
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn(f"![{alt}](static/axiom-social-card.png)", readme)
+
+    def test_ci_is_branch_safe_supported_recoverable_and_warning_fatal(self):
+        root = Path(main.__file__).resolve().parent
+        workflow = (root / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        runner = (root / "run_tests.py").read_text(encoding="utf-8")
+
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn('branches: ["**"]', workflow)
+        self.assertIn("actions/checkout@v5", workflow)
+        self.assertIn("actions/setup-python@v6", workflow)
+        self.assertIn("python run_tests.py", workflow)
+        self.assertNotIn("-W error::starlette.exceptions", workflow)
+        self.assertIn("StarletteDeprecationWarning", runner)
+
+        from run_tests import configure_warning_policy
+        from starlette.exceptions import StarletteDeprecationWarning
+
+        original_filters = warnings.filters[:]
+        try:
+            configure_warning_policy()
+            with self.assertRaises(StarletteDeprecationWarning):
+                warnings.warn("contract probe", StarletteDeprecationWarning)
+        finally:
+            warnings.filters[:] = original_filters
 
     def test_model_catalog_is_public_metadata(self):
         response = self.client.get("/models", headers={"Accept": "application/json"})

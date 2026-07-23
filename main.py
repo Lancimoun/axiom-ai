@@ -39,7 +39,7 @@ load_dotenv()
 
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -613,6 +613,18 @@ def custom_docs():
 
 
 # ── Landing page ───────────────────────────────────────────────────────────────
+@app.get(
+    "/static/axiom-social-card.png",
+    response_class=FileResponse,
+    include_in_schema=False,
+)
+def social_preview_card():
+    return FileResponse(
+        _BASE / "static" / "axiom-social-card.png",
+        media_type="image/png",
+    )
+
+
 @app.get("/", response_class=HTMLResponse, tags=["Landing"], include_in_schema=False)
 def root():
     return HTMLResponse(content=(_BASE / "templates" / "index.html").read_text(encoding="utf-8"))

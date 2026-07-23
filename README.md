@@ -17,13 +17,17 @@
 **Docs:** [axiom-ai-production-aaec.up.railway.app/docs](https://axiom-ai-production-aaec.up.railway.app/docs)
 **Health:** [axiom-ai-production-aaec.up.railway.app/health](https://axiom-ai-production-aaec.up.railway.app/health)
 
+![AXIOM AI Failure Lab social card: “When upstream breaks, Axiom tells the truth.” Four provider lanes converge on a contract gate; a fault becomes a sanitized error, the completion rail is blocked, and session state remains intact.](static/axiom-social-card.png)
+
 ---
 
 ## What It Is
 
 A quad-provider AI API that routes requests to **Claude (Anthropic)**, **GPT-5.5 (OpenAI)**, **Gemini (Google)**, or **Groq (LPU)** behind a single, unified interface. Switch providers and models per-request with one field. No SDK swaps. No re-implementation. 9 models total.
 
-Built with production concerns from day one: API key auth, per-IP rate limiting, CORS, real-time SSE streaming, multi-turn session memory, and full usage analytics.
+Built with production concerns from day one: API key auth, per-IP rate limiting, CORS, real-time SSE streaming, multi-turn session memory, and usage analytics.
+
+**State boundary:** sessions and usage counters are process-local and reset when the service restarts or redeploys. They demonstrate API and failure semantics; they are not durable storage.
 
 ---
 
@@ -98,10 +102,10 @@ curl -X POST https://axiom-ai-production-aaec.up.railway.app/benchmark/reliabili
 - **Quad provider** — Claude, GPT-5.5, Gemini, and Groq behind one API, switchable per request
 - **9 models** — Haiku 4.5 / Sonnet 4.6 / Opus 4.7 · GPT-5.4 Mini / GPT-5.5 · Gemini 3.5 Flash / 3.5 Pro · Llama 3.3 70B / Llama 3.1 8B
 - **Streaming** — real-time token-by-token output via SSE from all 4 providers, with one explicit terminal event
-- **Multi-turn chat** — session memory with rolling 20-message window; failed provider calls never commit half a turn
+- **Multi-turn chat** — process-local session memory with a rolling 20-message window; failed provider calls never commit half a turn
 - **RAG-ready** — pass `context` to any `/ask` call to ground answers in your data
 - **Custom system prompts** — override persona per request
-- **Usage analytics** — total requests, tokens, breakdown by provider and endpoint
+- **Usage analytics** — process-local totals for requests and tokens, broken down by provider and endpoint
 - **Auth + rate limiting** — production-safe out of the box
 - **Reliability benchmark** — inspect 15 provider-free Arena foundation probes, then opt into running 1–15 of them across configured providers for leaderboard-ready reports
 - **Failure-contract lab** — cinematic, provider-free replays of the tested stream, configuration, session, and retry boundaries; reduced-motion aware and explicit that no live provider call is running
@@ -128,6 +132,13 @@ data: {"error": "OpenAI stream failed.", "code": "upstream_failure", "retryable"
 All provider, retry, and SSE contracts use local fakes in CI. They do not require API keys or paid inference.
 
 The [live Failure Lab](https://axiom-ai-production-aaec.up.railway.app/#failure-lab) turns those exact contracts into an interactive public narrative. It is a deterministic replay—not a simulated provider benchmark—and its copy is pinned by the landing-page contract test.
+
+### Verify locally
+
+```bash
+python -m pip install -r requirements-dev.txt
+python run_tests.py
+```
 
 ---
 
