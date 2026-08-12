@@ -197,6 +197,11 @@ MAXIMA_API_KEY=your_maxima_key      # optional — sent as X-API-Key to Maxima b
 
 Axiom uses Google's supported `google-genai` SDK through one injectable client shared by synchronous and streaming paths. Local fakes pin multi-turn role conversion, system instructions, output-token limits, streamed token order, usage accounting, sanitized failures, and the single terminal `done` event. CI never needs a Gemini key or paid inference; `/health` exposes only the non-secret SDK name for live deployment verification.
 
+
+## Further reading
+
+[**Your AI agent's tests are lying to you**](https://lancimoun.github.io/writing/fake-tests.html) — Axiom's contract tests pin behaviour without a paid key. This is what it looks like when tests like those pass while checking nothing.
+
 ---
 
 > Built with Claude Code 💛⚡
